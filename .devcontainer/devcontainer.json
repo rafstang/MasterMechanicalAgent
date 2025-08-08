@@ -1,29 +1,25 @@
 {
-  "name": "GCP ADK Agent (Python 3.12 + uv)",
-  "image": "mcr.microsoft.com/devcontainers/python:3.12-bullseye",
-  "features": {
-    "ghcr.io/devcontainers/features/google-cloud-cli:1": {
-      "installGkeGcloudAuthPlugin": true
-    },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
-  },
-
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "ms-python.python",
-        "ms-python.vscode-pylance",
-        "googlecloudtools.cloudcode"
-      ]
-    }
-  },
-
-  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.cargo/env && uv pip install 'google-cloud-aiplatform[adk]' && gcloud auth application-default login",
-
-  "forwardPorts": [8080],
-  "portsAttributes": {
-    "8080": {
-      "label": "Agent App"
-    }
-  }
+	"name": "Python 3.12 (GCP Service Account + uv/toml)",
+	"image": "mcr.microsoft.com/devcontainers/python:3.12-bullseye",
+	"features": {
+		"ghcr.io/devcontainers/features/google-cloud-cli:1": {},
+		"ghcr.io/devcontainers/features/common-utils": {
+			"installJq": true
+		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"eamodio.gitlens",
+				"GoogleCloudTools.cloudcode"
+			]
+		}
+	},
+	"postStartCommand": "printf \"%s\" \"$GOOGLE_MASTER_MECHANICAL_CREDENTIALS\" > google_application_credentials.json && curl -LsSf https://astral.sh/uv/install.sh | sh",
+	"postAttachCommand": "source $HOME/.cargo/env && gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS && PROJECT_ID=$(jq -r '.project_id' < \"$GOOGLE_APPLICATION_CREDENTIALS\") && gcloud config set project $PROJECT_ID && echo \"API_KEY=$(gcloud secrets versions access latest --secret='API_KEY' --project=$PROJECT_ID)\" > .env && uv pip sync",
+	"remoteEnv": {
+		"GOOGLE_APPLICATION_CREDENTIALS": "google_application_credentials.json"
+	}
 }
