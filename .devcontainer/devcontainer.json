@@ -12,6 +12,7 @@
 				,"ms-python.black-formatter"
 				,"ms-azuretools.vscode-docker"
 				,"redhat.vscode-yaml"
+				,"mikestead.dotenv"
 			]
 		}
 	},
