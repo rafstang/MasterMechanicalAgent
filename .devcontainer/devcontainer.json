@@ -9,6 +9,9 @@
 				"ms-python.vscode-pylance",
 				"eamodio.gitlens",
 				"GoogleCloudTools.cloudcode"
+				,"ms-python.black-formatter"
+				,"ms-azuretools.vscode-docker"
+				,"redhat.vscode-yaml"
 			]
 		}
 	},
