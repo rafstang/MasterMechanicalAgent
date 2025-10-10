@@ -26,7 +26,7 @@
 	  },
 		"postStartCommand": "printf '%s' \"$GOOGLE_APPLICATION_CREDENTIALS_JSON\" > google_application_credentials.json && curl -LsSf https://astral.sh/uv/install.sh | sh",
 		"postAttachCommand": "[ -f $HOME/.cargo/env ] && source $HOME/.cargo/env || echo 'no $HOME/.cargo/env to source; skipping' && if [ -f \"$GOOGLE_APPLICATION_CREDENTIALS\" ]; then gcloud auth activate-service-account --key-file=\"$GOOGLE_APPLICATION_CREDENTIALS\" && PROJECT_ID=$(jq -r '.project_id' < \"$GOOGLE_APPLICATION_CREDENTIALS\") && gcloud config set project $PROJECT_ID && echo \"API_KEY=$(gcloud secrets versions access latest --secret='API_KEY' --project=$PROJECT_ID)\" > .env && uv sync; else echo 'GOOGLE_APPLICATION_CREDENTIALS not found; skipping gcloud auth and API key fetch'; fi",
-		"remoteEnv": {
-			"GOOGLE_APPLICATION_CREDENTIALS": "${workspaceFolder}/google_application_credentials.json"
-		}
+        "remoteEnv": {
+          "GOOGLE_APPLICATION_CREDENTIALS": "/workspaces/MasterMechanicalAgent/google_application_credentials.json"
+        }
 	}
