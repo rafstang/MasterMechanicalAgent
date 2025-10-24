@@ -5,23 +5,31 @@
 			"postCreateCommand": "sudo apt-get update && sudo apt-get install -y apt-transport-https ca-certificates gnupg curl && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg && echo \"deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main\" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && sudo apt-get update && sudo apt-get install -y google-cloud-cli jq && python3 -m venv .venv && .venv/bin/python -m pip install --upgrade pip && if [ -f requirements.txt ]; then .venv/bin/python -m pip install -r requirements.txt; fi && if [ -n \"$GOOGLE_API_KEY\" ]; then mkdir -p src/agents/MasterMechanicalAgent && printf 'GOOGLE_API_KEY=%s\nGOOGLE_GENAI_USE_VERTEXAI=FALSE\n' \"$GOOGLE_API_KEY\" > src/agents/MasterMechanicalAgent/.env && echo '.env created from Codespaces secret GOOGLE_API_KEY'; fi",
 	  "customizations": {
 	    "vscode": {
-		"extensions": [
-	        "ms-python.python",
-	        "ms-python.vscode-pylance",
-	        "eamodio.gitlens",
-	        "GoogleCloudTools.cloudcode",
-	        "ms-python.black-formatter",
-	        "ms-azuretools.vscode-docker",
-	        "redhat.vscode-yaml",
-		    "mikestead.dotenv",
-		    "ms-vscode.dbcode"
-	      ],
-				"settings": {
-					"git.confirmSync": false,
-					"git.autofetch": true,
-					"github.copilot.chat.agent.thinkingTool": true,
-					"python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
-				}
+	"extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "eamodio.gitlens",
+        "GoogleCloudTools.cloudcode",
+        "ms-python.black-formatter",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+	    "mikestead.dotenv",
+	    "ms-vscode.dbcode",
+	    "vivaxy.vscode-conventional-commits"
+      ],
+			"settings": {
+				"git.confirmSync": false,
+				"git.autofetch": true,
+				"github.copilot.chat.agent.thinkingTool": true,
+				"python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+				"conventionalCommits.scopes": [
+					"agent",
+					"config",
+					"tests",
+					"deps",
+					"docs"
+				]
+			}
 	    }
 	  },
 		"postStartCommand": "printf '%s' \"$GOOGLE_APPLICATION_CREDENTIALS\" > google_application_credentials.json && curl -LsSf https://astral.sh/uv/install.sh | sh",
