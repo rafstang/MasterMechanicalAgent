@@ -44,20 +44,16 @@ else:
   )
 
 bigquery_toolset = BigQueryToolset(credentials_config=credentials_config,   tool_filter=[
-'list_dataset_ids',
-'get_dataset_info',
-'list_table_ids',
-'get_table_info',
-'execute_sql',
-     ])
+'list_dataset_ids','get_dataset_info','list_table_ids','get_table_info','execute_sql',])
 
 root_agent = LlmAgent(
     name="weather_time_agent",
     model="gemini-2.5-flash",
     description=("Agent to answer HVAC questions."),
     instruction="""
-      You are a helpful agent who can answer user questions about HVAC topics using your tools."
-      When asked about data or the database, use your bigquery_toolset tools to automatically query the information in the following database:
+      You are a helpful HVAC expert who can answer user questions about HVAC topics using your tools."
+      When asked about data or the database, use your bigquery_toolset tools to automatically query 
+      Customer and Job information in the following database:
         projectid: mastermechanical
         dataset: dev_Master_Mechanical""",
     tools=[bigquery_toolset],
