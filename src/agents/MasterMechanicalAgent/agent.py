@@ -1,4 +1,17 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load .env from project root (cwd when running "adk web src/agents" from root),
+# then from the agent package directory so either location works.
+load_dotenv()  # cwd = project root
+load_dotenv(Path(__file__).resolve().parent / ".env")  # agent package dir (fallback)
+
+# The Google GenAI client only reads GOOGLE_API_KEY or GEMINI_API_KEY, not
+# GOOGLE_GENAI_API_KEY. Ensure the key is visible under the expected name.
+if not os.environ.get("GOOGLE_API_KEY") and os.environ.get("GOOGLE_GENAI_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = os.environ["GOOGLE_GENAI_API_KEY"]
 
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.auth.auth_credential import AuthCredentialTypes
@@ -47,7 +60,7 @@ bigquery_toolset = BigQueryToolset(credentials_config=credentials_config,   tool
 'list_dataset_ids','get_dataset_info','list_table_ids','get_table_info','execute_sql',])
 
 root_agent = LlmAgent(
-    name="weather_time_agent",
+    name="master_mechanical_agent",
     model="gemini-2.5-flash",
     description=("Agent to answer HVAC questions."),
     instruction="""

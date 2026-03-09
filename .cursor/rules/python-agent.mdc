@@ -1,0 +1,22 @@
+---
+description: Python and ADK agent patterns
+globs: src/agents/**/*.py
+alwaysApply: false
+---
+
+# Python and ADK agent patterns
+
+- Use `LlmAgent` from `google.adk.agents.llm_agent` and attach tools (e.g. `BigQueryToolset`) as in `src/agents/MasterMechanicalAgent/agent.py`.
+- **Credentials**: Prefer service account via `GOOGLE_APPLICATION_CREDENTIALS`; support OAuth2 or application default credentials as in the existing `CREDENTIALS_TYPE` / `BigQueryCredentialsConfig` logic. Do not hardcode keys; use `os.getenv` or `python-dotenv` and document in README.
+- **BigQuery**: Use `BigQueryToolConfig(write_mode=WriteMode.BLOCKED)` for read-only by default; restrict tools via `tool_filter` when appropriate.
+
+```python
+# Good: explicit tool filter and read-only config
+tool_config = BigQueryToolConfig(write_mode=WriteMode.BLOCKED)
+bigquery_toolset = BigQueryToolset(credentials_config=..., tool_filter=[...])
+```
+
+```python
+# Bad: hardcoded API key
+os.environ["GOOGLE_API_KEY"] = "sk-..."
+```

@@ -1,0 +1,11 @@
+---
+description: Project conventions and stack for Master Mechanical Agent
+alwaysApply: true
+---
+
+# Master Mechanical Agent – project conventions
+
+- **Python**: 3.14 only. Use the version in `.python-version` and `requires-python` in `pyproject.toml`.
+- **Dependencies**: Managed with [uv](https://docs.astral.sh/uv/). Use `uv sync` and `uv lock`; do not add `requirements.txt` for installs.
+- **Layout**: Agent package lives under `src/agents/MasterMechanicalAgent/`. Entry module is `agent.py`; package exports `root_agent` in `__init__.py`.
+- **Stack**: Google ADK (LlmAgent), BigQuery toolset for Customer/Job data (project `mastermechanical`, dataset `dev_Master_Mechanical`). Env and credentials are documented in README; keep agent instructions and tool config in sync with README and `.env` usage.

@@ -1,9 +1,9 @@
 # tests/test_agent.py
 
-from src.agent.agent import MyAgent
+from src.agents.MasterMechanicalAgent import root_agent
 
-def test_agent_runs(capfd):
-    agent = MyAgent()
-    agent.run()
-    out, _ = capfd.readouterr()
-    assert "Agent is running!" in out
+
+def test_root_agent_configured():
+    assert root_agent.name == "master_mechanical_agent"
+    assert root_agent.tools is not None
+    assert len(root_agent.tools) > 0
