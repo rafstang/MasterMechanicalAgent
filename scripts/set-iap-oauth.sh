@@ -25,7 +25,7 @@ if [ -z "$IAP_OAUTH_CLIENT_ID" ] || [ -z "$IAP_OAUTH_CLIENT_SECRET" ]; then
 fi
 
 TMP=$(mktemp)
-trap "rm -f $TMP" EXIT
+trap 'rm -f "$TMP"' EXIT
 
 cat << EOF > "$TMP"
 accessSettings:

@@ -1,19 +1,21 @@
 [project]
 name = "mastermechanicalagent"
 version = "0.1.0"
-description = "Add your description here"
+description = "Google ADK HVAC assistant with BigQuery for Master Mechanical."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "google-adk>=1.15.1",
     "python-dotenv>=1.0.0",
-    "openpyxl>=3.1.5",
-    "pandas>=2.3.3",
-    "pydantic>=2.12.5",
-    "sqlalchemy>=2.0.43",
-    "sqlmodel>=0.0.25",
+]
+
+[dependency-groups]
+dev = [
     "pytest>=8.0.0",
 ]
+
+[tool.uv]
+default-groups = ["dev"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
