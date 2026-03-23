@@ -1,5 +1,7 @@
 # Google Cloud service account credentials
 google_application_credentials.json
+# IAP OAuth client secret (do not commit)
+iap-oauth.yaml
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
