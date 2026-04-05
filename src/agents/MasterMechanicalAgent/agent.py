@@ -16,6 +16,7 @@ if not os.environ.get("GOOGLE_API_KEY") and os.environ.get("GOOGLE_GENAI_API_KEY
     os.environ["GOOGLE_API_KEY"] = os.environ["GOOGLE_GENAI_API_KEY"]
 
 from google.adk.agents.llm_agent import LlmAgent
+from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.auth.auth_credential import AuthCredentialTypes
 from google.adk.tools.bigquery.bigquery_credentials import BigQueryCredentialsConfig
 from google.adk.tools.bigquery.bigquery_toolset import BigQueryToolset
@@ -69,14 +70,24 @@ bigquery_toolset = BigQueryToolset(
     ],
 )
 
+# Web UI: only this signed-in email gets "owner" tone. Set MASTER_MECHANICAL_OWNER_EMAIL in env
+# (e.g. Cloud Run, .env); leave unset to disable owner-specific framing for everyone.
+_OWNER_EMAIL = (os.environ.get("MASTER_MECHANICAL_OWNER_EMAIL") or "").strip().lower()
+
 _AGENT_INSTRUCTION = """
-You are the Master Mechanical HVAC assistant. Your primary user is the HVAC company owner (business
-decisions, not a field-install manual). Give clear, concise answers: totals, ranked lists, and short
-summaries they can act on.
+You are the Master Mechanical HVAC assistant. Give clear, concise answers: totals, ranked lists, and
+short summaries. **Session role** (whether you may speak to this user as the business owner) is set
+in the **Session role** block that appears before this text when headers are present — always follow
+that block. Do **not** infer that the user is the owner from the company name or context alone; only
+the Session role text may authorize owner framing.
+
+**Who is the user:** When **Authenticated user** details appear below (name, email), use them for
+questions like "who am I" or "what is my email". Do not substitute a generic label when concrete
+identity is listed.
 
 **HVAC:** Answer technical HVAC questions from your expertise when no database is needed.
 
-**BigQuery:** You have read-only tools. Use them when the owner asks about customers, jobs,
+**BigQuery:** You have read-only tools. Use them when the user asks about customers, jobs,
 scheduling, invoices, or money owed (balances, past due, who owes the most).
 
 **Dataset:** `mastermechanical.dev_Master_Mechanical`. Always use fully qualified table names:
@@ -129,12 +140,12 @@ after verifying parsing, or compare the first four characters if values are ISO-
   `last_sync_status`, `records_synced`, `records_skipped`, `sync_duration_seconds`, `error_message`.
   Use for “when was X last synced?”, load health, or recent sync errors—not for customer AR math.
 
-**Receivables / owner-focused queries:**
+**Receivables / business-focused queries:**
 - Primary AR signal on the job: `jobs.outstanding_balance` and `jobs.total_amount`.
 - Invoice rollups: `job_invoices.total`, `job_invoices.status`, `job_invoices.invoice_number`.
 - There is no dedicated "due date" column in this snapshot; for "past due" or aging, combine status
   fields with `created_at` / `updated_at` on jobs or invoices, or schedule dates, and state
-  assumptions clearly to the owner.
+  assumptions clearly.
 - Rank "who owes the most": aggregate `SUM(jobs.outstanding_balance)` (or invoice totals) grouped
   by customer via `jobs.customer.id` joined to `customers`.
 
@@ -162,16 +173,75 @@ def _instruction_with_current_date() -> str:
     return _AGENT_INSTRUCTION.rstrip() + clock
 
 
+def _session_role_preamble(headers: dict[str, str] | None) -> str:
+    """Owner framing only when MASTER_MECHANICAL_OWNER_EMAIL is set and matches the signed-in user."""
+    email = ""
+    if isinstance(headers, dict):
+        email = (headers.get("user_email") or "").strip().lower()
+    if email and _OWNER_EMAIL and email == _OWNER_EMAIL:
+        return (
+            "**Session role:** The signed-in user is the **business owner** (Master Mechanical). "
+            "You may address them as the owner when natural, and frame answers for ownership and "
+            "business decisions (not step-by-step field install manuals unless they ask).\n\n"
+        )
+    if email and not _OWNER_EMAIL:
+        return (
+            "**Session role:** The signed-in user is authenticated. Do **not** assume they are the "
+            "business owner. Address them by name when known; keep a professional tone.\n\n"
+        )
+    if email:
+        return (
+            "**Session role:** The signed-in user is **not** the business owner. Address them by "
+            "name when you know it; do **not** call them \"the owner\" or imply they run the company. "
+            "Still help with HVAC and read-only business data as an authorized Master Mechanical user.\n\n"
+        )
+    return (
+        "**Session role:** No verified user email is present in this request. Do **not** assume the "
+        "user is the business owner; keep a neutral, professional tone.\n\n"
+    )
+
+
+def _instruction_with_session_identity(ctx: ReadonlyContext) -> str:
+    """Merge role, clock, base instructions, and AG-UI `state.headers` (forwarded from Auth.js)."""
+    try:
+        headers = ctx.state.get("headers")
+    except (TypeError, AttributeError):
+        headers = None
+    hdr = headers if isinstance(headers, dict) else None
+    preamble = _session_role_preamble(hdr)
+    base = _instruction_with_current_date()
+    if not hdr:
+        return preamble + base
+    name = (hdr.get("user_name") or "").strip()
+    email = (hdr.get("user_email") or "").strip()
+    uid = (hdr.get("user_id") or "").strip()
+    lines: list[str] = []
+    if name:
+        lines.append(f"- **Name:** {name}")
+    if email:
+        lines.append(f"- **Email:** {email}")
+    if uid and not email:
+        lines.append(f"- **User id (OAuth subject):** {uid}")
+    if not lines:
+        return preamble + base
+    block = (
+        "\n\n**Authenticated user (from the signed-in session):**\n"
+        + "\n".join(lines)
+        + "\n"
+    )
+    return preamble + base + block
+
+
 root_agent = LlmAgent(
     name="master_mechanical_agent",
     # Prefer a non-lite Flash-family model so tool/function calling stays reliable with ADK;
     # flash-lite + function_call-only turns can surface as empty text in the UI (see README).
     model="gemini-3-flash-preview",
     description=(
-        "HVAC and business assistant for the company owner: technical HVAC help plus read-only "
+        "HVAC and business assistant for Master Mechanical: technical HVAC help plus read-only "
         "BigQuery insights on customers, jobs, and receivables (balances owed, past due) in "
-        "mastermechanical.dev_Master_Mechanical."
+        "mastermechanical.dev_Master_Mechanical. Tone follows session (owner vs other users)."
     ),
-    instruction=_instruction_with_current_date(),
+    instruction=_instruction_with_session_identity,
     tools=[bigquery_toolset],
 )

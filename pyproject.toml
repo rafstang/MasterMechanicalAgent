@@ -7,6 +7,9 @@ requires-python = ">=3.14"
 dependencies = [
     "google-adk>=1.15.1",
     "python-dotenv>=1.0.0",
+    "ag-ui-adk>=0.5.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
 ]
 
 [dependency-groups]

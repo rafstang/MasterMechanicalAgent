@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Apply custom OAuth client to IAP for the Cloud Run service (CLI only).
 # The OAuth client itself must be created in the Console:
 #   APIs & Services → Credentials → Create OAuth 2.0 Client ID (Web application)
@@ -7,13 +7,15 @@
 # Usage:
 #   export IAP_OAUTH_CLIENT_ID="123...apps.googleusercontent.com"
 #   export IAP_OAUTH_CLIENT_SECRET="GOCSPX-..."
+#   # Optional: match scripts/deploy.sh
+#   export SERVICE_NAME=mastermechanical-ag-ui-iap
 #   ./scripts/set-iap-oauth.sh
 
-set -e
+set -euo pipefail
 
-PROJECT_ID="mastermechanical"
-REGION="us-central1"
-SERVICE_NAME="adk-default-service-name"
+PROJECT_ID="${PROJECT_ID:-mastermechanical}"
+REGION="${REGION:-us-central1}"
+SERVICE_NAME="${SERVICE_NAME:-mastermechanical-ag-ui-iap}"
 
 if [ -z "$IAP_OAUTH_CLIENT_ID" ] || [ -z "$IAP_OAUTH_CLIENT_SECRET" ]; then
   echo "Error: set IAP_OAUTH_CLIENT_ID and IAP_OAUTH_CLIENT_SECRET in the environment."

@@ -1,5 +1,3 @@
-# tests/test_agent.py
-
 from src.agents.MasterMechanicalAgent import root_agent
 
 

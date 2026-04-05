@@ -1,10 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Check IAP and OAuth-related settings for the Cloud Run agent (CLI only).
 # Usage: ./scripts/check-iap-settings.sh
+# Optional: export PROJECT_ID, REGION, SERVICE_NAME (default matches scripts/deploy.sh).
 
-PROJECT_ID="mastermechanical"
-REGION="us-central1"
-SERVICE_NAME="adk-default-service-name"
+PROJECT_ID="${PROJECT_ID:-mastermechanical}"
+REGION="${REGION:-us-central1}"
+SERVICE_NAME="${SERVICE_NAME:-mastermechanical-ag-ui-iap}"
 
 echo "=== 1. Cloud Run service: IAP enabled? ==="
 gcloud beta run services describe $SERVICE_NAME \

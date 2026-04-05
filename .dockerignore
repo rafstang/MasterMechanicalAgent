@@ -20,3 +20,7 @@ htmlcov/
 venv/
 ENV/
 google_application_credentials.json
+
+# Next.js (not used by root Dockerfile; shrinks Cloud Build context)
+frontend/node_modules/
+frontend/.next/

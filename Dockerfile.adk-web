@@ -1,5 +1,4 @@
-# AG-UI FastAPI backend for CopilotKit (see README). For the legacy ADK web UI, use Dockerfile.adk-web.
-# Cloud Run: gcloud run deploy --source . (from repo root)
+# Legacy: ADK built-in web UI (`adk web`). For CopilotKit + AG-UI use the root Dockerfile instead.
 FROM python:3.14-slim
 
 WORKDIR /app
@@ -16,4 +15,4 @@ COPY src ./src
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["sh", "-c", "uv run uvicorn src.agents.MasterMechanicalAgent.ag_ui_app:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uv run adk web src/agents --port ${PORT} --host 0.0.0.0 --no-reload"]
