@@ -169,7 +169,7 @@ def _utc_iso_now() -> str:
 
 
 def _set_run_status(
-    ctx: Context,
+    callback_context: Context,
     *,
     phase: str,
     active_tool: str | None = None,
@@ -177,7 +177,11 @@ def _set_run_status(
 ) -> None:
     """Persist compact run status for UI and diagnostics."""
     try:
-        prior = ctx.state.get(_STATUS_STATE_KEY) if isinstance(ctx.state, dict) else {}
+        prior = (
+            callback_context.state.get(_STATUS_STATE_KEY)
+            if isinstance(callback_context.state, dict)
+            else {}
+        )
     except Exception:
         prior = {}
     if not isinstance(prior, dict):
@@ -189,33 +193,40 @@ def _set_run_status(
         "updated_at": _utc_iso_now(),
     }
     next_status["started_at"] = prior.get("started_at") or next_status["updated_at"]
-    ctx.state[_STATUS_STATE_KEY] = next_status
+    callback_context.state[_STATUS_STATE_KEY] = next_status
 
 
-def _before_model_callback(ctx: Context, llm_request: LlmRequest) -> LlmResponse | None:
+# ADK 1.28+ invokes these with keyword-only names (e.g. callback_context=..., tool_context=...).
+
+
+def _before_model_callback(
+    callback_context: Context, llm_request: LlmRequest
+) -> LlmResponse | None:
     del llm_request
-    _set_run_status(ctx, phase="thinking", detail="Preparing model response")
+    _set_run_status(callback_context, phase="thinking", detail="Preparing model response")
     return None
 
 
-def _after_model_callback(ctx: Context, llm_response: LlmResponse) -> LlmResponse | None:
+def _after_model_callback(
+    callback_context: Context, llm_response: LlmResponse
+) -> LlmResponse | None:
     del llm_response
-    _set_run_status(ctx, phase="summarizing", detail="Formatting response")
+    _set_run_status(callback_context, phase="summarizing", detail="Formatting response")
     return None
 
 
 def _before_tool_callback(
-    tool: BaseTool, args: dict[str, object], ctx: Context
+    tool: BaseTool, args: dict[str, object], tool_context: Context
 ) -> dict | None:
     now = datetime.now(timezone.utc).timestamp()
-    timer_map = ctx.state.get(_STATUS_TIMERS_KEY, {})
+    timer_map = tool_context.state.get(_STATUS_TIMERS_KEY, {})
     if not isinstance(timer_map, dict):
         timer_map = {}
     tool_name = getattr(tool, "name", tool.__class__.__name__)
     timer_map[tool_name] = now
-    ctx.state[_STATUS_TIMERS_KEY] = timer_map
+    tool_context.state[_STATUS_TIMERS_KEY] = timer_map
     _set_run_status(
-        ctx,
+        tool_context,
         phase="tool_calling",
         active_tool=tool_name,
         detail=f"Calling {tool_name}",
@@ -225,29 +236,36 @@ def _before_tool_callback(
 
 
 def _after_tool_callback(
-    tool: BaseTool, args: dict[str, object], ctx: Context, tool_response: dict
+    tool: BaseTool,
+    args: dict[str, object],
+    tool_context: Context,
+    tool_response: dict,
 ) -> dict | None:
     del args
     del tool_response
     tool_name = getattr(tool, "name", tool.__class__.__name__)
     now = datetime.now(timezone.utc).timestamp()
     elapsed_ms: int | None = None
-    timer_map = ctx.state.get(_STATUS_TIMERS_KEY, {})
+    timer_map = tool_context.state.get(_STATUS_TIMERS_KEY, {})
     if isinstance(timer_map, dict):
         started = timer_map.pop(tool_name, None)
         if isinstance(started, (int, float)):
             elapsed_ms = max(0, int((now - started) * 1000))
-        ctx.state[_STATUS_TIMERS_KEY] = timer_map
+        tool_context.state[_STATUS_TIMERS_KEY] = timer_map
     detail = f"Completed {tool_name}"
     if elapsed_ms is not None:
         detail += f" in {elapsed_ms} ms"
-    _set_run_status(ctx, phase="summarizing", active_tool=tool_name, detail=detail)
+    _set_run_status(
+        tool_context, phase="summarizing", active_tool=tool_name, detail=detail
+    )
     return None
 
 
-def _after_agent_callback(ctx: Context, output: types.Content) -> types.Content | None:
-    del output
-    _set_run_status(ctx, phase="done", active_tool=None, detail="Response complete")
+def _after_agent_callback(callback_context: Context) -> types.Content | None:
+    """ADK passes only callback_context (no assistant output argument)."""
+    _set_run_status(
+        callback_context, phase="done", active_tool=None, detail="Response complete"
+    )
     return None
 
 
