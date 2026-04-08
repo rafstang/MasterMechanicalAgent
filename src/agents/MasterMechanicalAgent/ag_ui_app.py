@@ -69,6 +69,8 @@ adk_middleware_agent = ADKAgent(
     app_name="mastermechanical",
     user_id_extractor=_user_id_from_request,
     use_in_memory_services=True,
+    emit_messages_snapshot=True,
+    streaming_function_call_arguments=True,
 )
 
 app = FastAPI(title="Master Mechanical AG-UI")

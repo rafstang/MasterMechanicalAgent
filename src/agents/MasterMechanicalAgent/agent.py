@@ -16,8 +16,13 @@ if not os.environ.get("GOOGLE_API_KEY") and os.environ.get("GOOGLE_GENAI_API_KEY
     os.environ["GOOGLE_API_KEY"] = os.environ["GOOGLE_GENAI_API_KEY"]
 
 from google.adk.agents.llm_agent import LlmAgent
+from google.adk.agents.context import Context
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.auth.auth_credential import AuthCredentialTypes
+from google.genai import types
+from google.adk.models.llm_request import LlmRequest
+from google.adk.models.llm_response import LlmResponse
+from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.bigquery.bigquery_credentials import BigQueryCredentialsConfig
 from google.adk.tools.bigquery.bigquery_toolset import BigQueryToolset
 from google.adk.tools.bigquery.config import BigQueryToolConfig, WriteMode
@@ -155,6 +160,96 @@ invoice_number when present.
 Other tools: `list_dataset_ids`, `get_dataset_info`, `list_table_ids` if you need to verify names.
 """
 
+_STATUS_STATE_KEY = "run_status"
+_STATUS_TIMERS_KEY = "run_status_timers"
+
+
+def _utc_iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _set_run_status(
+    ctx: Context,
+    *,
+    phase: str,
+    active_tool: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """Persist compact run status for UI and diagnostics."""
+    try:
+        prior = ctx.state.get(_STATUS_STATE_KEY) if isinstance(ctx.state, dict) else {}
+    except Exception:
+        prior = {}
+    if not isinstance(prior, dict):
+        prior = {}
+    next_status = {
+        "phase": phase,
+        "active_tool": active_tool,
+        "detail": detail,
+        "updated_at": _utc_iso_now(),
+    }
+    next_status["started_at"] = prior.get("started_at") or next_status["updated_at"]
+    ctx.state[_STATUS_STATE_KEY] = next_status
+
+
+def _before_model_callback(ctx: Context, llm_request: LlmRequest) -> LlmResponse | None:
+    del llm_request
+    _set_run_status(ctx, phase="thinking", detail="Preparing model response")
+    return None
+
+
+def _after_model_callback(ctx: Context, llm_response: LlmResponse) -> LlmResponse | None:
+    del llm_response
+    _set_run_status(ctx, phase="summarizing", detail="Formatting response")
+    return None
+
+
+def _before_tool_callback(
+    tool: BaseTool, args: dict[str, object], ctx: Context
+) -> dict | None:
+    now = datetime.now(timezone.utc).timestamp()
+    timer_map = ctx.state.get(_STATUS_TIMERS_KEY, {})
+    if not isinstance(timer_map, dict):
+        timer_map = {}
+    tool_name = getattr(tool, "name", tool.__class__.__name__)
+    timer_map[tool_name] = now
+    ctx.state[_STATUS_TIMERS_KEY] = timer_map
+    _set_run_status(
+        ctx,
+        phase="tool_calling",
+        active_tool=tool_name,
+        detail=f"Calling {tool_name}",
+    )
+    del args
+    return None
+
+
+def _after_tool_callback(
+    tool: BaseTool, args: dict[str, object], ctx: Context, tool_response: dict
+) -> dict | None:
+    del args
+    del tool_response
+    tool_name = getattr(tool, "name", tool.__class__.__name__)
+    now = datetime.now(timezone.utc).timestamp()
+    elapsed_ms: int | None = None
+    timer_map = ctx.state.get(_STATUS_TIMERS_KEY, {})
+    if isinstance(timer_map, dict):
+        started = timer_map.pop(tool_name, None)
+        if isinstance(started, (int, float)):
+            elapsed_ms = max(0, int((now - started) * 1000))
+        ctx.state[_STATUS_TIMERS_KEY] = timer_map
+    detail = f"Completed {tool_name}"
+    if elapsed_ms is not None:
+        detail += f" in {elapsed_ms} ms"
+    _set_run_status(ctx, phase="summarizing", active_tool=tool_name, detail=detail)
+    return None
+
+
+def _after_agent_callback(ctx: Context, output: types.Content) -> types.Content | None:
+    del output
+    _set_run_status(ctx, phase="done", active_tool=None, detail="Response complete")
+    return None
+
 
 def _instruction_with_current_date() -> str:
     """Append real clock so the model does not rely on stale training cutoffs for 'today' / 'this year'."""
@@ -244,4 +339,9 @@ root_agent = LlmAgent(
     ),
     instruction=_instruction_with_session_identity,
     tools=[bigquery_toolset],
+    before_model_callback=_before_model_callback,
+    after_model_callback=_after_model_callback,
+    before_tool_callback=_before_tool_callback,
+    after_tool_callback=_after_tool_callback,
+    after_agent_callback=_after_agent_callback,
 )
