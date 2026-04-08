@@ -269,6 +269,35 @@ def _after_agent_callback(callback_context: Context) -> types.Content | None:
     return None
 
 
+def _on_model_error_callback(
+    callback_context: Context, llm_request: LlmRequest, error: Exception
+) -> LlmResponse | None:
+    """Gracefully handle transient GenAI capacity errors."""
+    del llm_request
+    message = str(error)
+    if "503" not in message and "UNAVAILABLE" not in message.upper():
+        return None
+    _set_run_status(
+        callback_context,
+        phase="done",
+        active_tool=None,
+        detail="Model capacity spike (retry suggested)",
+    )
+    return LlmResponse(
+        content=types.Content(
+            role="model",
+            parts=[
+                types.Part(
+                    text=(
+                        "The model is temporarily overloaded right now. "
+                        "Please retry in a few seconds and I will continue."
+                    )
+                )
+            ],
+        )
+    )
+
+
 def _instruction_with_current_date() -> str:
     """Append real clock so the model does not rely on stale training cutoffs for 'today' / 'this year'."""
     tz_name = os.environ.get("AGENT_TIMEZONE", "America/Phoenix")
@@ -362,4 +391,5 @@ root_agent = LlmAgent(
     before_tool_callback=_before_tool_callback,
     after_tool_callback=_after_tool_callback,
     after_agent_callback=_after_agent_callback,
+    on_model_error_callback=_on_model_error_callback,
 )
