@@ -1,6 +1,9 @@
+import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -26,7 +29,10 @@ from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.bigquery.bigquery_credentials import BigQueryCredentialsConfig
 from google.adk.tools.bigquery.bigquery_toolset import BigQueryToolset
 from google.adk.tools.bigquery.config import BigQueryToolConfig, WriteMode
+from google.genai.errors import APIError as GenaiAPIError
 import google.auth
+
+logger = logging.getLogger(__name__)
 
 # Define an appropriate credential type
 CREDENTIALS_TYPE = AuthCredentialTypes.SERVICE_ACCOUNT
@@ -163,6 +169,58 @@ Other tools: `list_dataset_ids`, `get_dataset_info`, `list_table_ids` if you nee
 _STATUS_STATE_KEY = "run_status"
 _STATUS_TIMERS_KEY = "run_status_timers"
 
+_LOG_JSON_MAX = 8000
+
+
+def _truncate(s: str, max_len: int) -> str:
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
+
+def _safe_json(obj: Any, max_len: int = _LOG_JSON_MAX) -> str:
+    try:
+        return _truncate(
+            json.dumps(obj, default=str, ensure_ascii=False), max_len
+        )
+    except Exception:
+        return _truncate(repr(obj), max_len)
+
+
+def _invocation_log_fields(callback_context: Context) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    try:
+        fields["invocation_id"] = callback_context.invocation_id
+        fields["agent_name"] = callback_context.agent_name
+        fields["user_id"] = callback_context.user_id
+        sess = callback_context.session
+        fields["session_id"] = getattr(sess, "id", None)
+    except Exception as meta_err:
+        fields["invocation_meta_error"] = str(meta_err)
+    return fields
+
+
+def _llm_request_model_id(llm_request: LlmRequest | None) -> str | None:
+    if llm_request is None:
+        return None
+    try:
+        m = llm_request.model
+        return str(m) if m is not None else None
+    except Exception:
+        return None
+
+
+def _genai_error_fields(error: BaseException) -> dict[str, Any]:
+    out: dict[str, Any] = {"error_type": type(error).__name__}
+    if isinstance(error, GenaiAPIError):
+        out["http_status_code"] = getattr(error, "code", None)
+        out["api_status"] = getattr(error, "status", None)
+        out["api_message"] = getattr(error, "message", None)
+        out["api_details"] = getattr(error, "details", None)
+    else:
+        out["error_message"] = str(error)
+    return out
+
 
 def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -273,10 +331,28 @@ def _on_model_error_callback(
     callback_context: Context, llm_request: LlmRequest, error: Exception
 ) -> LlmResponse | None:
     """Gracefully handle transient GenAI capacity errors."""
-    del llm_request
     message = str(error)
+    common: dict[str, Any] = {
+        **_invocation_log_fields(callback_context),
+        "model": _llm_request_model_id(llm_request),
+        **_genai_error_fields(error),
+    }
     if "503" not in message and "UNAVAILABLE" not in message.upper():
+        logger.info(
+            "ADK model error (pass-through): %s",
+            _safe_json({"event": "model_error_pass_through", **common}),
+        )
         return None
+    logger.warning(
+        "Serving user-friendly response after GenAI overload / unavailable: %s",
+        _safe_json(
+            {
+                "event": "genai_model_temporarily_unavailable",
+                "user_visible_fallback": True,
+                **common,
+            }
+        ),
+    )
     _set_run_status(
         callback_context,
         phase="done",
