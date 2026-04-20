@@ -1,0 +1,72 @@
+- generic [ref=e4]:
+  - generic [ref=e8]:
+    - generic [ref=e11]:
+      - generic [ref=e12]:
+        - img [ref=e13]
+        - text: Agent Development Kit
+      - generic [ref=e14]:
+        - button "Toggle theme" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]: light_mode
+        - generic [ref=e20] [cursor=pointer]: left_panel_close
+    - generic [ref=e21]:
+      - combobox "MasterMechanicalAgent" [ref=e23]:
+        - generic [ref=e24] [cursor=pointer]:
+          - generic [ref=e26]: MasterMechanicalAgent
+          - img [ref=e29]
+      - generic [ref=e31]:
+        - img [ref=e32] [cursor=pointer]: add
+        - img [ref=e33] [cursor=pointer]: edit
+    - generic [ref=e35]:
+      - tablist [ref=e38]:
+        - generic [ref=e39]:
+          - tab "Trace" [selected] [ref=e40] [cursor=pointer]:
+            - generic [ref=e43]: Trace
+          - tab "State" [ref=e44] [cursor=pointer]:
+            - generic [ref=e47]: State
+          - tab "Artifacts" [ref=e48] [cursor=pointer]:
+            - generic [ref=e51]: Artifacts
+          - tab "Sessions" [ref=e52] [cursor=pointer]:
+            - generic [ref=e55]: Sessions
+          - tab "Eval" [ref=e56] [cursor=pointer]:
+            - generic [ref=e59]: Eval
+      - generic [ref=e60]:
+        - tabpanel "Trace" [ref=e61]:
+          - generic [ref=e65]: No invocations found
+        - tabpanel [ref=e66]
+        - tabpanel [ref=e67]
+        - tabpanel [ref=e68]
+        - tabpanel [ref=e69]
+  - generic [ref=e73]:
+    - generic [ref=e74]:
+      - generic [ref=e75]:
+        - generic [ref=e76]: Session ID
+        - generic [ref=e77]: User ID
+        - generic [ref=e78]: user
+      - generic [ref=e79]:
+        - generic [ref=e82]:
+          - switch "Token Streaming" [ref=e83] [cursor=pointer]:
+            - generic [ref=e89]:
+              - img [ref=e90]
+              - img [ref=e92]
+          - generic [ref=e94] [cursor=pointer]: Token Streaming
+        - separator [ref=e95]
+        - generic [ref=e96]:
+          - generic [ref=e97] [cursor=pointer]:
+            - img [ref=e98]: add
+            - text: New Session
+          - generic [ref=e99] [cursor=pointer]: delete
+          - generic [ref=e100] [cursor=pointer]: download
+    - generic [ref=e108]:
+      - textbox "Type a Message..." [ref=e109]
+      - generic [ref=e110]:
+        - generic [ref=e111]:
+          - button [ref=e112] [cursor=pointer]:
+            - img [ref=e113]: attach_file
+          - button [ref=e116] [cursor=pointer]:
+            - img [ref=e117]: more_vert
+        - generic [ref=e120]:
+          - button [ref=e121] [cursor=pointer]:
+            - img [ref=e122]: mic
+          - button [ref=e125] [cursor=pointer]:
+            - img [ref=e126]: videocam
+    - generic [ref=e130]: ADK Web Developer UI

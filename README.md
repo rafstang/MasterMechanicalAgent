@@ -1,8 +1,8 @@
 # Master Mechanical Agent
 
-HVAC expert agent built with [Google ADK](https://github.com/google/adk-python) and BigQuery. Answers user questions about HVAC topics and can query Customer and Job data in BigQuery (project `mastermechanical`, dataset `dev_Master_Mechanical`).
+HVAC expert agent built with [Google ADK](https://github.com/google/adk-python) and BigQuery. Answers user questions about HVAC topics and can query Customer, Job, and Employee data in BigQuery (project `mastermechanical`, dataset `dev_Master_Mechanical`).
 
-The agent emphasizes clear summaries and receivables-style questions (balances owed, past due). BigQuery usage is documented in [`src/agents/MasterMechanicalAgent/agent.py`](src/agents/MasterMechanicalAgent/agent.py): table names (`customers`, `jobs`, `job_invoices`, `job_appointments`, `tags`, `checklists`), joins, and receivables fields (`outstanding_balance`, invoice `status`, etc.), with `get_table_info` as a fallback if live metadata differs.
+The agent emphasizes clear summaries and receivables-style questions (balances owed, past due). BigQuery usage is documented in [`src/agents/MasterMechanicalAgent/agent.py`](src/agents/MasterMechanicalAgent/agent.py): table names (`customers`, `jobs`, `job_invoices`, `job_appointments`, `employees`, `tags`, `checklists`), joins (including `employees` for technician names and contact info from job/appointment IDs), and receivables fields (`outstanding_balance`, invoice `status`, etc.), with `get_table_info` as a fallback if live metadata differs.
 
 ## Prerequisites
 
@@ -93,7 +93,7 @@ The root [**Dockerfile**](Dockerfile) runs the **AG-UI FastAPI** app (`uvicorn â
 
 **Two services** (recommended): deploy the Python API and the Next.js app separately.
 
-1. **Secrets** (Secret Manager): ensure `API_KEY` exists for Gemini (same secret the deploy scripts mount as `GOOGLE_GENAI_API_KEY`). For production, set a random **`AG_UI_INVOKER_SECRET`** on **both** Cloud Run services (and create the value in Secret Manager if you prefer not to use plain env vars). The Next.js service sends it to the Python service as `X-AG-UI-Token`; without it, the AG-UI app does not enforce that header.
+1. **Secrets** (Secret Manager): ensure **`GOOGLE_API_KEY`** exists for Gemini (same secret the deploy scripts mount as `GOOGLE_GENAI_API_KEY`). For production, set a random **`AG_UI_INVOKER_SECRET`** on **both** Cloud Run services (and create the value in Secret Manager if you prefer not to use plain env vars). The Next.js service sends it to the Python service as `X-AG-UI-Token`; without it, the AG-UI app does not enforce that header.
 
 2. **Deploy** from the repo root with bash (Git Bash / WSL / Linux/macOS):
 
@@ -129,7 +129,7 @@ There are two supported paths; both build container images in **Cloud Build** fr
 | Goal | Script | What it deploys |
 |------|--------|-----------------|
 | **CopilotKit (Next.js + AG-UI)** | [`scripts/deploy-copilotkit-cloud-run.sh`](scripts/deploy-copilotkit-cloud-run.sh) | Backend from repo root [Dockerfile](Dockerfile) (`ag_ui_app`) + frontend from [`frontend/Dockerfile`](frontend/Dockerfile). See [Deploy CopilotKit UI to the web](#deploy-copilotkit-ui-to-the-web-cloud-run) above for env vars. |
-| **Single AG-UI service + IAP** | [`scripts/deploy.sh`](scripts/deploy.sh) | One Cloud Run service from the same root Dockerfile, **no** public invoker, [IAP](https://cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run) enabled, Gemini key from Secret Manager `API_KEY`. |
+| **Single AG-UI service + IAP** | [`scripts/deploy.sh`](scripts/deploy.sh) | One Cloud Run service from the same root Dockerfile, **no** public invoker, [IAP](https://cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run) enabled, Gemini key from Secret Manager `GOOGLE_API_KEY`. |
 
 Defaults and overrides are documented at the top of each script (`PROJECT_ID`, `REGION`, service names). Get a service URL after deploy:
 
@@ -146,7 +146,7 @@ chmod +x scripts/deploy.sh
 ./scripts/deploy.sh
 ```
 
-Edit **`AUTHORIZED_USERS`** in [`scripts/deploy.sh`](scripts/deploy.sh) to list Google accounts that should receive **`roles/run.invoker`** on that service. Grant those same accounts the IAP **Web App User** role (`roles/iap.httpsResourceAccessor`) so they can sign in through IAP. Secret Manager must contain **`API_KEY`** (Gemini), as in the CopilotKit flow.
+Edit **`AUTHORIZED_USERS`** in [`scripts/deploy.sh`](scripts/deploy.sh) to list Google accounts that should receive **`roles/run.invoker`** on that service. Grant those same accounts the IAP **Web App User** role (`roles/iap.httpsResourceAccessor`) so they can sign in through IAP. Secret Manager must contain **`GOOGLE_API_KEY`** (Gemini), as in the CopilotKit flow.
 
 The default service name is **`mastermechanical-ag-ui-iap`** (override with `SERVICE_NAME`) so it does not collide with the CopilotKit backend default **`mastermechanical-ag-ui`** if you use both.
 

@@ -1,5 +1,9 @@
 from src.agents.MasterMechanicalAgent import root_agent
-from src.agents.MasterMechanicalAgent.agent import _on_model_error_callback
+from src.agents.MasterMechanicalAgent.agent import (
+    _AGENT_INSTRUCTION,
+    _instruction_with_session_identity,
+    _on_model_error_callback,
+)
 from src.agents.MasterMechanicalAgent.ag_ui_app import adk_middleware_agent
 
 
@@ -23,6 +27,27 @@ def test_ag_ui_middleware_status_features_enabled():
         getattr(adk_middleware_agent, "_streaming_function_call_arguments", False)
         is True
     )
+
+
+def test_agent_instruction_documents_employees_table():
+    assert "dev_Master_Mechanical.employees" in _AGENT_INSTRUCTION
+    assert "assigned_employees" in _AGENT_INSTRUCTION
+    assert "dispatched_employees_ids" in _AGENT_INSTRUCTION
+
+
+def test_instruction_includes_oauth_subject_when_email_present():
+    class _Ctx:
+        state = {
+            "headers": {
+                "user_email": "owner@example.com",
+                "user_id": "oauth-subject-123",
+                "user_name": "Test User",
+            }
+        }
+
+    text = _instruction_with_session_identity(_Ctx())  # type: ignore[arg-type]
+    assert "oauth-subject-123" in text
+    assert "OAuth subject" in text
 
 
 def test_on_model_error_callback_handles_503():

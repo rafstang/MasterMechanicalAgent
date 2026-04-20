@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CopilotKit stack to Google Cloud Run: AG-UI FastAPI (repo root) + Next.js (frontend/).
-# Prerequisites: gcloud auth, project set, Secret Manager secret API_KEY (Gemini), optional AG_UI_INVOKER secret.
+# Prerequisites: gcloud auth, project set, Secret Manager secret GOOGLE_API_KEY (Gemini), optional AG_UI_INVOKER secret.
 #
 # For a single AG-UI service with IAP and no public invoker, use scripts/deploy.sh instead.
 #
@@ -36,7 +36,7 @@ gcloud run services update "$BACKEND_SERVICE" \
   --region="$REGION" \
   --project="$PROJECT_ID" \
   --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION}" \
-  --update-secrets=GOOGLE_GENAI_API_KEY=API_KEY:latest \
+  --update-secrets=GOOGLE_GENAI_API_KEY=GOOGLE_API_KEY:latest \
   --quiet
 
 BACKEND_URL="$(gcloud run services describe "$BACKEND_SERVICE" --region="$REGION" --project="$PROJECT_ID" --format='value(status.url)')"

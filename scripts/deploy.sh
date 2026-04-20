@@ -2,7 +2,7 @@
 # Deploy a single AG-UI (FastAPI) service to Cloud Run with IAP and per-user IAM invokers.
 # Builds from the repo root Dockerfile (same image as CopilotKit backend: uvicorn ag_ui_app).
 #
-# Prerequisites: gcloud auth, Secret Manager secret API_KEY (mounted as GOOGLE_GENAI_API_KEY).
+# Prerequisites: gcloud auth, Secret Manager secret GOOGLE_API_KEY (mounted as GOOGLE_GENAI_API_KEY).
 #
 # Configure:
 #   export PROJECT_ID=mastermechanical
@@ -45,7 +45,7 @@ gcloud run services update "${SERVICE_NAME}" \
   --region="${REGION}" \
   --project="${PROJECT_ID}" \
   --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION}" \
-  --update-secrets=GOOGLE_GENAI_API_KEY=API_KEY:latest
+  --update-secrets=GOOGLE_GENAI_API_KEY=GOOGLE_API_KEY:latest
 
 echo "Configuring IAM: authorized users only..."
 gcloud run services remove-iam-policy-binding "${SERVICE_NAME}" \

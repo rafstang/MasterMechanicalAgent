@@ -1,0 +1,50 @@
+---
+description: Browser E2E and smoke testing via the Playwright MCP server (snapshot-driven flows).
+globs: frontend/**
+alwaysApply: false
+---
+
+# Playwright MCP — automated browser testing
+
+This repo’s **Python** tests in `tests/` are unit checks for the ADK agent. **End-to-end UI verification** of the Next.js app (`frontend/`) uses the **Playwright MCP** server configured in `.cursor/mcp.json` (`@executeautomation/playwright-mcp-server`), not a `playwright` npm dependency.
+
+## Before calling tools
+
+- Read the tool schema under `mcps/user-Playwright/tools/*.json` (or your Cursor MCP tool list) **before** the first call. Required fields differ per tool (e.g. `browser_click` requires `ref`).
+- In Cursor, the server may appear as **Playwright** / **`user-Playwright`** depending on naming; use the identifier your environment shows for MCP calls.
+
+## Core workflow
+
+1. **`browser_tabs`** (`action: list`) — see open tabs and pick the right context.
+2. **`browser_navigate`** — target URL (see **Local URLs** below).
+3. **`browser_snapshot`** — get the accessibility tree and **`ref` values** for targets.
+4. Interact using **`ref` from the latest snapshot** (`browser_click`, `browser_type`, `browser_fill_form`, etc.).
+5. After navigation, submit, or any change that can alter the DOM, take a **fresh `browser_snapshot`** before the next interaction.
+
+## Evidence vs targeting
+
+- Use **`browser_snapshot`** to choose elements and **`ref`** for actions. The snapshot description states it is preferred over screenshots for interaction.
+- Use **`browser_take_screenshot`** for visual proof or regressions only; do not rely on screenshots to pick elements.
+- Use **`browser_wait_for`** (text present/gone or time) when waiting for async UI or Copilot responses.
+
+## Advanced / escape hatches
+
+- **`browser_run_code`** — run an `async (page) => { ... }` snippet for flows that are awkward with refs; keep snippets small and return useful values for assertions.
+- **`browser_evaluate`** — read state from the page or an element (`function` + optional `ref`).
+- **`browser_console_messages`** / **`browser_network_requests`** — diagnose errors, failed API calls, or Auth/CopilotKit issues.
+
+## This app’s testing constraints
+
+- **Two processes for full UI**: AG-UI backend on **port 8000** and Next.js on **port 3000** (see repo `README.md`). Without both, the signed-in Copilot flow will not work end-to-end.
+- **Google sign-in** gates the main experience. Unattended E2E may be limited to the **signed-out** screen unless the user provides a test session, OAuth test users, or another agreed bypass. Do not assume you can complete Google OAuth silently; **stop and report** if login blocks the scenario.
+- CopilotKit chat lives in a **sidebar**; snapshot depth or scrolling may be needed to reach composer controls.
+
+## Failure handling
+
+- If a **`ref` fails** or the UI looks wrong, **snapshot again** instead of retrying the same action blindly.
+- Set up **`browser_handle_dialog`** before actions that trigger `alert` / `confirm` / `prompt` if tests need specific outcomes.
+
+## What not to conflate
+
+- Do not add **`requirements.txt`** or replace **uv** workflows for Python; project conventions stay in `project-conventions.mdc`.
+- Prefer MCP-driven browser checks for **this** setup rather than introducing **`@playwright/test`** in `frontend/` unless the team explicitly standardizes on it.
