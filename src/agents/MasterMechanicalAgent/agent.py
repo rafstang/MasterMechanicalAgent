@@ -482,7 +482,7 @@ root_agent = LlmAgent(
     name="master_mechanical_agent",
     # Prefer a non-lite Flash-family model so tool/function calling stays reliable with ADK;
     # flash-lite + function_call-only turns can surface as empty text in the UI (see README).
-    model="gemini-3-flash-preview",
+    model="gemini-3.1-flash-lite-preview",
     description=(
         "HVAC and business assistant for Master Mechanical: technical HVAC help plus read-only "
         "BigQuery insights on customers, jobs, employees, and receivables (balances owed, past due) "
