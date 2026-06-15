@@ -29,11 +29,77 @@ def test_ag_ui_middleware_status_features_enabled():
     )
 
 
+def test_agent_instruction_documents_employees_table():
+    from src.agents.MasterMechanicalAgent.agent import BIGQUERY_DATASET_REF
+
+    assert f"{BIGQUERY_DATASET_REF}.employees" in _AGENT_INSTRUCTION
+    assert "assigned_employees" in _AGENT_INSTRUCTION
+    assert "dispatched_employees_ids" in _AGENT_INSTRUCTION
+
+
 def test_agent_instruction_documents_bigquery_project_id():
+    from src.agents.MasterMechanicalAgent.agent import (
+        BIGQUERY_DATASET_REF,
+        BIGQUERY_PROJECT_ID,
+    )
+
     assert "project_id" in _AGENT_INSTRUCTION
-    assert "mastermechanical.dev_Master_Mechanical" in _AGENT_INSTRUCTION
+    assert BIGQUERY_DATASET_REF in _AGENT_INSTRUCTION
     assert "Never" in _AGENT_INSTRUCTION or "never" in _AGENT_INSTRUCTION
-    assert 'project_id="mastermechanical"' in _AGENT_INSTRUCTION
+    assert f'project_id="{BIGQUERY_PROJECT_ID}"' in _AGENT_INSTRUCTION
+
+
+def test_on_model_error_callback_passes_through_non_503():
+    class _StateDict(dict):
+        pass
+
+    class _Ctx:
+        def __init__(self):
+            self.state = _StateDict()
+
+    response = _on_model_error_callback(
+        _Ctx(),  # type: ignore[arg-type]
+        llm_request=None,  # type: ignore[arg-type]
+        error=Exception("400 Bad Request"),
+    )
+    assert response is None
+
+
+def test_session_role_preamble_owner_when_email_matches(monkeypatch):
+    from src.agents.MasterMechanicalAgent.agent import _session_role_preamble
+
+    monkeypatch.setenv("MASTER_MECHANICAL_OWNER_EMAIL", "owner@example.com")
+    # Reload owner email constant
+    import src.agents.MasterMechanicalAgent.agent as agent_mod
+
+    monkeypatch.setattr(agent_mod, "_OWNER_EMAIL", "owner@example.com")
+    text = _session_role_preamble({"user_email": "owner@example.com"})
+    assert "business owner" in text
+
+
+def test_session_role_preamble_non_owner_when_email_differs(monkeypatch):
+    from src.agents.MasterMechanicalAgent.agent import _session_role_preamble
+    import src.agents.MasterMechanicalAgent.agent as agent_mod
+
+    monkeypatch.setattr(agent_mod, "_OWNER_EMAIL", "owner@example.com")
+    text = _session_role_preamble({"user_email": "other@example.com"})
+    assert "not** the business owner" in text or "not the business owner" in text
+
+
+def test_session_role_preamble_anonymous_without_email():
+    from src.agents.MasterMechanicalAgent.agent import _session_role_preamble
+
+    text = _session_role_preamble(None)
+    assert "No verified user email" in text
+
+
+def test_instruction_with_current_date_includes_timezone(monkeypatch):
+    from src.agents.MasterMechanicalAgent.agent import _instruction_with_current_date
+
+    monkeypatch.setenv("AGENT_TIMEZONE", "UTC")
+    text = _instruction_with_current_date()
+    assert "Current date and time" in text
+    assert "UTC" in text
 
 
 def test_bigquery_tool_config_pins_compute_project():
@@ -67,12 +133,6 @@ def test_agent_instruction_prefers_customer_job_columns_over_ids():
     assert "User-facing job lists" in _AGENT_INSTRUCTION
     assert "customer" in _AGENT_INSTRUCTION.lower()
     assert "start_az" in _AGENT_INSTRUCTION
-
-
-def test_agent_instruction_documents_employees_table():
-    assert "dev_Master_Mechanical.employees" in _AGENT_INSTRUCTION
-    assert "assigned_employees" in _AGENT_INSTRUCTION
-    assert "dispatched_employees_ids" in _AGENT_INSTRUCTION
 
 
 def test_instruction_includes_oauth_subject_when_email_present():

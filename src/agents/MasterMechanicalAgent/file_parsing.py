@@ -13,6 +13,7 @@ from typing_extensions import override
 
 _MAX_PREVIEW_ROWS = 10
 _MAX_CELL_CHARS = 120
+MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 
 
 def _truncate_cell(value: Any) -> str:
@@ -22,23 +23,22 @@ def _truncate_cell(value: Any) -> str:
     return text[: _MAX_CELL_CHARS - 1] + "…"
 
 
-def summarize_csv_bytes(data: bytes, filename: str = "upload.csv") -> str:
-    """Return a compact markdown summary of a CSV file."""
-    text = data.decode("utf-8-sig", errors="replace")
-    reader = csv.reader(io.StringIO(text))
-    rows = list(reader)
-    if not rows:
-        return f"**{filename}** is empty."
+def _reject_oversized(data: bytes, filename: str) -> str | None:
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        limit_mb = MAX_ATTACHMENT_BYTES // (1024 * 1024)
+        return (
+            f"**{filename}** exceeds the {limit_mb} MB attachment limit "
+            f"({len(data):,} bytes)."
+        )
+    return None
 
-    header = [_truncate_cell(cell) for cell in rows[0]]
-    body = [[_truncate_cell(cell) for cell in row] for row in rows[1:]]
-    lines = [
-        f"**File:** {filename}",
-        f"**Rows:** {len(body)} (excluding header)",
-        f"**Columns ({len(header)}):** {', '.join(header)}",
-        "",
-        "**Sample rows:**",
-    ]
+
+def _markdown_table_preview(
+    header: list[str],
+    body: list[list[str]],
+    meta_lines: list[str],
+) -> str:
+    lines = meta_lines + ["", "**Sample rows:**"]
     if not body:
         lines.append("(no data rows)")
         return "\n".join(lines)
@@ -53,8 +53,34 @@ def summarize_csv_bytes(data: bytes, filename: str = "upload.csv") -> str:
     return "\n".join(lines)
 
 
+def summarize_csv_bytes(data: bytes, filename: str = "upload.csv") -> str:
+    """Return a compact markdown summary of a CSV file."""
+    oversize = _reject_oversized(data, filename)
+    if oversize:
+        return oversize
+
+    text = data.decode("utf-8-sig", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        return f"**{filename}** is empty."
+
+    header = [_truncate_cell(cell) for cell in rows[0]]
+    body = [[_truncate_cell(cell) for cell in row] for row in rows[1:]]
+    meta = [
+        f"**File:** {filename}",
+        f"**Rows:** {len(body)} (excluding header)",
+        f"**Columns ({len(header)}):** {', '.join(header)}",
+    ]
+    return _markdown_table_preview(header, body, meta)
+
+
 def summarize_excel_bytes(data: bytes, filename: str = "upload.xlsx") -> str:
     """Return a compact markdown summary of the first sheet in an Excel workbook."""
+    oversize = _reject_oversized(data, filename)
+    if oversize:
+        return oversize
+
     from openpyxl import load_workbook
 
     workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
@@ -77,26 +103,13 @@ def summarize_excel_bytes(data: bytes, filename: str = "upload.xlsx") -> str:
             continue
         body.append([_truncate_cell(cell) for cell in row])
 
-    lines = [
+    meta = [
         f"**File:** {filename}",
         f"**Sheet:** {sheet.title}",
         f"**Rows:** {len(body)} (excluding header)",
         f"**Columns ({len(header)}):** {', '.join(header)}",
-        "",
-        "**Sample rows:**",
     ]
-    if not body:
-        lines.append("(no data rows)")
-        return "\n".join(lines)
-
-    lines.append("| " + " | ".join(header) + " |")
-    lines.append("| " + " | ".join("---" for _ in header) + " |")
-    for row in body[:_MAX_PREVIEW_ROWS]:
-        padded = row + [""] * (len(header) - len(row))
-        lines.append("| " + " | ".join(padded[: len(header)]) + " |")
-    if len(body) > _MAX_PREVIEW_ROWS:
-        lines.append(f"\n… and {len(body) - _MAX_PREVIEW_ROWS} more rows.")
-    return "\n".join(lines)
+    return _markdown_table_preview(header, body, meta)
 
 
 def summarize_spreadsheet_from_artifact(
@@ -107,14 +120,19 @@ def summarize_spreadsheet_from_artifact(
     if inline is None or inline.data is None:
         return f"Could not read bytes for **{filename}**."
 
+    data = inline.data
+    oversize = _reject_oversized(data, filename)
+    if oversize:
+        return oversize
+
     mime = (inline.mime_type or "").split(";", 1)[0].strip().lower()
     lower_name = filename.lower()
     if mime in {"text/csv", "application/csv"} or lower_name.endswith(".csv"):
-        return summarize_csv_bytes(inline.data, filename)
+        return summarize_csv_bytes(data, filename)
     if lower_name.endswith(".xlsx") or lower_name.endswith(".xls") or "spreadsheet" in mime or "excel" in mime:
-        return summarize_excel_bytes(inline.data, filename)
+        return summarize_excel_bytes(data, filename)
     if mime.startswith("text/") or lower_name.endswith(".txt"):
-        text = inline.data.decode("utf-8", errors="replace")
+        text = data.decode("utf-8", errors="replace")
         preview = text[:4000]
         suffix = "\n… (truncated)" if len(text) > 4000 else ""
         return f"**File:** {filename}\n\n```\n{preview}{suffix}\n```"

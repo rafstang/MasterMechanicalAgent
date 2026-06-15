@@ -26,13 +26,13 @@ function readStoredWidth(): number {
 }
 
 export function useResizableSidebarWidth() {
-  const [width, setWidthState] = useState(DEFAULT_WIDTH);
+  const [width, setWidthState] = useState(() => readStoredWidth());
   const [isDragging, setIsDragging] = useState(false);
-  const widthRef = useRef(DEFAULT_WIDTH);
+  const widthRef = useRef(width);
 
   useEffect(() => {
-    setWidthState(readStoredWidth());
-  }, []);
+    widthRef.current = width;
+  }, [width]);
 
   const persistWidth = useCallback((next: number) => {
     const clamped = clampWidth(next);

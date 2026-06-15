@@ -27,12 +27,18 @@ Configure via environment variables or a `.env` file in `src/agents/MasterMechan
 |----------|-------------|
 | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | Required for the Gemini model. The agent also checks `GOOGLE_GENAI_API_KEY` and copies it to `GOOGLE_API_KEY` if set. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to a GCP service account key JSON for BigQuery. If unset, application default credentials are used. |
+| `GOOGLE_CLOUD_PROJECT` | Optional. GCP project id for BigQuery tools (default `mastermechanical`). |
 | `AGENT_TIMEZONE` | Optional. IANA timezone for the **current date/time** line appended to agent instructions (default `America/Phoenix`). Example: `UTC`. |
 | `MASTER_MECHANICAL_OWNER_EMAIL` | Optional. If set to the signed-in user’s email (AG-UI / Auth.js), the assistant uses owner-oriented framing; if unset, no account is treated as the owner. |
+| `AG_UI_ALLOW_UNAUTHENTICATED` | **Local dev only.** Set to `true` to run the AG-UI backend without `AG_UI_INVOKER_SECRET`. Do not use in production. |
+| `AG_UI_INVOKER_SECRET` | **Required in production.** Shared secret; Next.js sends it as `X-AG-UI-Token` to the FastAPI backend. |
+| `AG_UI_CORS_ORIGINS` | Comma-separated browser origins allowed by the AG-UI FastAPI CORS middleware (default `http://localhost:3000`). |
+
+See [`.env.example`](.env.example) for a full list including frontend variables.
 
 On **Cloud Run**, BigQuery calls use the service’s **runtime service account** (unless you set a custom one), typically `PROJECT_NUMBER-compute@developer.gserviceaccount.com`. Grant that identity **`roles/bigquery.jobUser`** on the project and read access to the dataset (for example **`roles/bigquery.dataViewer`** on `dev_Master_Mechanical` or the project). Without job + data access, queries can fail or appear to hang.
 
-If Cloud Logging shows `non-text parts in the response: ['function_call']` and the dev UI shows **no assistant text after a tool runs**, that often comes from using **`gemini-2.5-flash-lite`** (or similar lite models) with tools. This project uses **`gemini-3-flash-preview`** for more reliable function calling with the ADK.
+This project intentionally uses **`gemini-3.1-flash-lite-preview`** for lower cost and latency. Lite models can occasionally return **function_call-only** turns with empty assistant text in some ADK UIs. If you see that in Cloud Logging (`non-text parts in the response: ['function_call']`), switch the `model` in [`agent.py`](src/agents/MasterMechanicalAgent/agent.py) to a non-lite Flash-family model (for example `gemini-3-flash-preview`).
 
 ## Run locally
 
@@ -60,6 +66,8 @@ Run **two processes** from the repo root (after `uv sync` and `cd frontend && np
 uv run uvicorn src.agents.MasterMechanicalAgent.ag_ui_app:app --host 0.0.0.0 --port 8000
 ```
 
+Set `AG_UI_ALLOW_UNAUTHENTICATED=true` in your `.env` for local development, or set `AG_UI_INVOKER_SECRET` and pass the same value from Next.js (see frontend env table below).
+
 **Terminal 2 — Next.js (port 3000):**
 
 ```bash
@@ -73,17 +81,30 @@ Open [http://localhost:3000](http://localhost:3000), sign in with Google, then u
 
 | Variable | Description |
 |----------|-------------|
-| `AUTH_SECRET` | Random secret for Auth.js session encryption (required in production). |
+| `AUTH_SECRET` | Random secret for Auth.js session encryption (required in production). `NEXTAUTH_SECRET` is accepted as a fallback. |
 | `AUTH_GOOGLE_ID` | Google OAuth client ID (Web application). |
 | `AUTH_GOOGLE_SECRET` | Google OAuth client secret. |
 | `AUTH_URL` | Optional. Base URL of the app, e.g. `http://localhost:3000` (helps OAuth redirects). |
 | `AG_UI_BACKEND_URL` | URL of the FastAPI AG-UI server (default `http://localhost:8000/`). |
+| `AG_UI_INVOKER_SECRET` | Optional locally; **required in production** on both Next.js and the Python backend. |
 
 In [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials), add **Authorized redirect URI**: `http://localhost:3000/api/auth/callback/google` for the OAuth client used above.
 
-**Backend (optional):** `AG_UI_CORS_ORIGINS` — comma-separated allowed browser origins for the FastAPI app (default `http://localhost:3000`).
+**Backend:** `AG_UI_CORS_ORIGINS` — comma-separated allowed browser origins for the FastAPI app (default `http://localhost:3000`).
 
-**Security:** The FastAPI service should not be exposed publicly without authentication in front of it. Treat production deployment as a follow-up (e.g. private networking between the Next.js host and the Python service, or mutual TLS). Do not rely on `X-User-Id` from untrusted callers if the route is reachable without Auth.js.
+### Security checklist (CopilotKit / Cloud Run)
+
+| Control | Purpose |
+|---------|---------|
+| `AG_UI_INVOKER_SECRET` on **both** services | Prevents unauthenticated POSTs to the AG-UI backend URL |
+| Auth.js on Next.js | Google sign-in; identity headers set server-side only |
+| `AG_UI_CORS_ORIGINS` | Restrict browser-origin calls if clients hit the backend directly |
+| `MASTER_MECHANICAL_OWNER_EMAIL` | Limits “owner” framing to one verified email |
+| BigQuery IAM on runtime SA | Read-only data access (`WriteMode.BLOCKED` in code) |
+
+**Deploy scripts:** [`scripts/deploy-copilotkit-cloud-run.sh`](scripts/deploy-copilotkit-cloud-run.sh) deploys **public** Cloud Run invokers (use invoker secret). [`scripts/deploy.sh`](scripts/deploy.sh) deploys a **single IAP-protected** AG-UI service without public invoker.
+
+Do not expose the FastAPI AG-UI URL publicly without `AG_UI_INVOKER_SECRET` or IAP in front of it.
 
 If `uv sync` fails on Windows with “cannot access `adk.exe`”, close any process using the ADK CLI and retry.
 
@@ -93,7 +114,7 @@ The root [**Dockerfile**](Dockerfile) runs the **AG-UI FastAPI** app (`uvicorn �
 
 **Two services** (recommended): deploy the Python API and the Next.js app separately.
 
-1. **Secrets** (Secret Manager): ensure **`GOOGLE_API_KEY`** exists for Gemini (same secret the deploy scripts mount as `GOOGLE_GENAI_API_KEY`). For production, set a random **`AG_UI_INVOKER_SECRET`** on **both** Cloud Run services (and create the value in Secret Manager if you prefer not to use plain env vars). The Next.js service sends it to the Python service as `X-AG-UI-Token`; without it, the AG-UI app does not enforce that header.
+1. **Secrets** (Secret Manager): ensure **`GOOGLE_API_KEY`** exists for Gemini (same secret the deploy scripts mount as `GOOGLE_GENAI_API_KEY`). **Production requires `AG_UI_INVOKER_SECRET`** on both Cloud Run services (create in Secret Manager or set as env vars). The Next.js service sends it to the Python service as `X-AG-UI-Token`.
 
 2. **Deploy** from the repo root with bash (Git Bash / WSL / Linux/macOS):
 

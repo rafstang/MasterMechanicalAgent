@@ -21,6 +21,37 @@ from src.agents.MasterMechanicalAgent.agent import root_agent  # noqa: E402
 # Headers the Next.js `/api/copilotkit` route sets from Auth.js (must not be overridden by client body).
 _IDENTITY_HEADER_NAMES = ("x-user-id", "x-user-email", "x-user-name")
 
+_CORS_ALLOW_METHODS = ["GET", "POST", "OPTIONS"]
+_CORS_ALLOW_HEADERS = [
+    "Content-Type",
+    "Authorization",
+    "X-AG-UI-Token",
+    "X-User-Id",
+    "X-User-Email",
+    "X-User-Name",
+]
+
+
+def _allow_unauthenticated() -> bool:
+    return os.getenv("AG_UI_ALLOW_UNAUTHENTICATED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _validate_invoker_config() -> None:
+    if _allow_unauthenticated():
+        return
+    if not os.getenv("AG_UI_INVOKER_SECRET"):
+        raise RuntimeError(
+            "AG_UI_INVOKER_SECRET must be set when AG_UI_ALLOW_UNAUTHENTICATED is not true. "
+            "For local development only, set AG_UI_ALLOW_UNAUTHENTICATED=true."
+        )
+
+
+_validate_invoker_config()
+
 mastermechanical_app = App(
     name="mastermechanical",
     root_agent=root_agent,
@@ -85,7 +116,7 @@ app = FastAPI(title="Master Mechanical AG-UI")
 
 @app.middleware("http")
 async def ag_ui_invoker_guard(request: Request, call_next):
-    """If AG_UI_INVOKER_SECRET is set, require matching X-AG-UI-Token on AG-UI POST / (Next.js server → backend)."""
+    """Require matching X-AG-UI-Token on POST when AG_UI_INVOKER_SECRET is set."""
     expected = os.getenv("AG_UI_INVOKER_SECRET")
     if expected and request.method == "POST":
         got = request.headers.get("x-ag-ui-token")
@@ -104,8 +135,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=_CORS_ALLOW_METHODS,
+    allow_headers=_CORS_ALLOW_HEADERS,
 )
 
 add_adk_fastapi_endpoint(

@@ -1,4 +1,13 @@
-from src.agents.MasterMechanicalAgent.file_parsing import summarize_csv_bytes
+import io
+
+from google.genai import types
+
+from src.agents.MasterMechanicalAgent.file_parsing import (
+    MAX_ATTACHMENT_BYTES,
+    summarize_csv_bytes,
+    summarize_excel_bytes,
+    summarize_spreadsheet_from_artifact,
+)
 
 
 def test_summarize_csv_bytes_includes_columns_and_rows():
@@ -9,6 +18,55 @@ def test_summarize_csv_bytes_includes_columns_and_rows():
     assert "role" in summary
     assert "Alice" in summary
     assert "Bob" in summary
+
+
+def test_summarize_csv_bytes_rejects_oversize():
+    data = b"x" * (MAX_ATTACHMENT_BYTES + 1)
+    summary = summarize_csv_bytes(data, "big.csv")
+    assert "exceeds" in summary
+    assert "big.csv" in summary
+
+
+def test_summarize_excel_bytes_reads_first_sheet():
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["col_a", "col_b"])
+    ws.append(["1", "2"])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    summary = summarize_excel_bytes(buf.getvalue(), "sample.xlsx")
+    assert "sample.xlsx" in summary
+    assert "Sheet1" in summary
+    assert "col_a" in summary
+    assert "1" in summary
+
+
+def test_summarize_spreadsheet_from_artifact_text_preview():
+    part = types.Part(
+        inline_data=types.Blob(
+            mime_type="text/plain",
+            data=b"hello world",
+        )
+    )
+    summary = summarize_spreadsheet_from_artifact(part, "notes.txt")
+    assert "notes.txt" in summary
+    assert "hello world" in summary
+
+
+def test_summarize_spreadsheet_from_artifact_unknown_mime():
+    part = types.Part(
+        inline_data=types.Blob(
+            mime_type="application/octet-stream",
+            data=b"\x00\x01",
+        )
+    )
+    summary = summarize_spreadsheet_from_artifact(part, "data.bin")
+    assert "data.bin" in summary
+    assert "load_artifacts" in summary
 
 
 def test_root_agent_has_attachment_tools():

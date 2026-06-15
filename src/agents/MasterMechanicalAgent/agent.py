@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -21,7 +23,6 @@ if not os.environ.get("GOOGLE_API_KEY") and os.environ.get("GOOGLE_GENAI_API_KEY
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.agents.context import Context
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.auth.auth_credential import AuthCredentialTypes
 from google.genai import types
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
@@ -44,9 +45,6 @@ BIGQUERY_PROJECT_ID = (
 BIGQUERY_DATASET_ID = "dev_Master_Mechanical"
 BIGQUERY_DATASET_REF = f"{BIGQUERY_PROJECT_ID}.{BIGQUERY_DATASET_ID}"
 
-# Define an appropriate credential type
-CREDENTIALS_TYPE = AuthCredentialTypes.SERVICE_ACCOUNT
-
 # Write modes define BigQuery access control of agent:
 # ALLOWED: Tools will have full write capabilities.
 # BLOCKED: Default mode. Effectively makes the tool read-only.
@@ -58,26 +56,11 @@ tool_config = BigQueryToolConfig(
     application_name="mastermechanical-agent",
 )
 
-if CREDENTIALS_TYPE == AuthCredentialTypes.OAUTH2:
-    # Initialize the tools to do interactive OAuth
-    credentials_config = BigQueryCredentialsConfig(
-        client_id=os.getenv("OAUTH_CLIENT_ID"),
-        client_secret=os.getenv("OAUTH_CLIENT_SECRET"),
-    )
-elif CREDENTIALS_TYPE == AuthCredentialTypes.SERVICE_ACCOUNT:
-    # Initialize the tools to use the credentials in the service account key.
-    creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if creds_file and os.path.exists(creds_file):
-        creds, _ = google.auth.load_credentials_from_file(creds_file)
-        credentials_config = BigQueryCredentialsConfig(credentials=creds)
-    else:
-        # Fallback to application default credentials
-        application_default_credentials, _ = google.auth.default()
-        credentials_config = BigQueryCredentialsConfig(
-            credentials=application_default_credentials
-        )
+creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+if creds_file and os.path.exists(creds_file):
+    creds, _ = google.auth.load_credentials_from_file(creds_file)
+    credentials_config = BigQueryCredentialsConfig(credentials=creds)
 else:
-    # Initialize the tools to use the application default credentials.
     application_default_credentials, _ = google.auth.default()
     credentials_config = BigQueryCredentialsConfig(
         credentials=application_default_credentials
@@ -99,7 +82,26 @@ bigquery_toolset = BigQueryToolset(
 # (e.g. Cloud Run, .env); leave unset to disable owner-specific framing for everyone.
 _OWNER_EMAIL = (os.environ.get("MASTER_MECHANICAL_OWNER_EMAIL") or "").strip().lower()
 
-_AGENT_INSTRUCTION = """
+_SQL_CUSTOMER_DISPLAY_NAME = """COALESCE(
+  NULLIF(TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), ''),
+  NULLIF(TRIM(c.first_name), ''),
+  NULLIF(TRIM(c.last_name), ''),
+  '[Name Not Provided]'
+) AS customer"""
+
+_SQL_JOB_LABEL = """COALESCE(
+    NULLIF(TRIM(j.name), ''),
+    NULLIF(TRIM(j.description), ''),
+    NULLIF(TRIM(j.invoice_number), ''),
+    'Unnamed job'
+  )"""
+
+_SQL_JOB_LABEL_INLINE = (
+    "COALESCE(NULLIF(TRIM(j.name), ''), NULLIF(TRIM(j.description), ''), "
+    "NULLIF(TRIM(j.invoice_number), ''), 'Unnamed job')"
+)
+
+_AGENT_INSTRUCTION = f"""
 You are the Master Mechanical HVAC assistant. Give clear, concise answers: totals, ranked lists, and
 short summaries. **Session role** (whether you may speak to this user as the business owner) is set
 in the **Session role** block that appears before this text when headers are present — always follow
@@ -112,7 +114,7 @@ concrete identity is listed.
 
 **Identity in company data:** If the user asks for their company-system employee ID, profile, or
 "my ID in the system", use the **Authenticated user** email when available and query
-`mastermechanical.dev_Master_Mechanical.employees` with a case-insensitive match on `email`.
+`{BIGQUERY_DATASET_REF}.employees` with a case-insensitive match on `email`.
 Clearly distinguish:
 - **OAuth subject** (signed-in identity; shown as User id in the session block)
 - **Employee / business ID** from `employees.id` (the Field Service / Pro ID used on jobs)
@@ -125,21 +127,21 @@ the session email, say so and offer to search by name if they provide it.
 **BigQuery:** You have read-only tools. Use them when the user asks about customers, jobs,
 employees or technicians, scheduling, invoices, or money owed (balances, past due, who owes the most).
 
-**Dataset:** `mastermechanical.dev_Master_Mechanical`. Always use fully qualified table names:
-`mastermechanical.dev_Master_Mechanical.<table>`.
+**Dataset:** `{BIGQUERY_DATASET_REF}`. Always use fully qualified table names:
+`{BIGQUERY_DATASET_REF}.<table>`.
 
 **BigQuery tool parameters (critical — wrong values cause failed tool calls):**
 - `project_id` on every BigQuery tool (`execute_sql`, `list_dataset_ids`, `get_table_info`, etc.)
-  must be **`mastermechanical`** — the GCP project id only.
+  must be **`{BIGQUERY_PROJECT_ID}`** — the GCP project id only.
 - `dataset_id` on metadata tools (`get_dataset_info`, `list_table_ids`, `get_table_info`) is
-  **`dev_Master_Mechanical`** — separate from `project_id`.
-- **Never** pass `mastermechanical.dev_Master_Mechanical` as `project_id`; that string is
+  **`{BIGQUERY_DATASET_ID}`** — separate from `project_id`.
+- **Never** pass `{BIGQUERY_DATASET_REF}` as `project_id`; that string is
   `project.dataset`, not a valid GCP project id.
 - **Never** guess other project ids (`mastermechanical-dev`, `mastermechanical-427318`, etc.).
 - Do **not** call `list_dataset_ids` to "find" the project when running business queries — you
-  already know `project_id=mastermechanical` and the dataset above.
+  already know `project_id={BIGQUERY_PROJECT_ID}` and the dataset above.
 - For `execute_sql`, pass only `project_id` and `query` (SQL already contains fully qualified
-  table names). Example tool args: `project_id="mastermechanical"`, not the dataset path.
+  table names). Example tool args: `project_id="{BIGQUERY_PROJECT_ID}"`, not the dataset path.
 
 **Ignore staging tables:** Do not query tables whose names end with `_staging` (for example
 `customers_staging`, `jobs_staging`) unless the user explicitly asks for staging or pipeline/debug
@@ -188,12 +190,7 @@ after verifying parsing, or compare the first four characters if values are ISO-
 HVAC business (`Master Mechanical`), not the customer.
 
 ```sql
-COALESCE(
-  NULLIF(TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), ''),
-  NULLIF(TRIM(c.first_name), ''),
-  NULLIF(TRIM(c.last_name), ''),
-  '[Name Not Provided]'
-) AS customer
+{_SQL_CUSTOMER_DISPLAY_NAME}
 ```
 
 **Scheduling / "jobs this week" queries:** Prefer `job_appointments.start_time` (TIMESTAMP) for
@@ -205,7 +202,7 @@ on `jobs.customer.id = customers.id` so you can show who the job is for.
 **User-facing job lists (default):** Do **not** lead with `job_id`, `customer.id`, or other internal
 IDs unless the user explicitly asks for IDs. Prefer human-readable columns:
 - **Customer** — use the **Customer display name** expression above (never `company_name`).
-- **Job** — `COALESCE(NULLIF(TRIM(j.name), ''), NULLIF(TRIM(j.description), ''), NULLIF(TRIM(j.invoice_number), ''), 'Unnamed job')`
+- **Job** — `{_SQL_JOB_LABEL_INLINE}`
 - **Start / End** — format `start_time` and `end_time` in the session timezone (default
   `America/Phoenix`), not raw UTC, and label the column accordingly (e.g. "Start (AZ)").
 - Optional when helpful: `j.work_status`, service address from `c.addresses` (city/state), or
@@ -217,24 +214,14 @@ Example — jobs scheduled this week (customer-focused; no IDs in output):
 
 ```sql
 SELECT
-  COALESCE(
-    NULLIF(TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), ''),
-    NULLIF(TRIM(c.first_name), ''),
-    NULLIF(TRIM(c.last_name), ''),
-    '[Name Not Provided]'
-  ) AS customer,
-  COALESCE(
-    NULLIF(TRIM(j.name), ''),
-    NULLIF(TRIM(j.description), ''),
-    NULLIF(TRIM(j.invoice_number), ''),
-    'Unnamed job'
-  ) AS job,
+  {_SQL_CUSTOMER_DISPLAY_NAME},
+  {_SQL_JOB_LABEL} AS job,
   FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', ja.start_time, 'America/Phoenix') AS start_az,
   FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', ja.end_time, 'America/Phoenix') AS end_az,
   j.work_status
-FROM `mastermechanical.dev_Master_Mechanical.job_appointments` AS ja
-JOIN `mastermechanical.dev_Master_Mechanical.jobs` AS j ON ja.job_id = j.id
-LEFT JOIN `mastermechanical.dev_Master_Mechanical.customers` AS c ON j.customer.id = c.id
+FROM `{BIGQUERY_DATASET_REF}.job_appointments` AS ja
+JOIN `{BIGQUERY_DATASET_REF}.jobs` AS j ON ja.job_id = j.id
+LEFT JOIN `{BIGQUERY_DATASET_REF}.customers` AS c ON j.customer.id = c.id
 WHERE ja.start_time IS NOT NULL
   AND ja.start_time >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), WEEK(SUNDAY))
   AND ja.start_time < TIMESTAMP_ADD(TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), WEEK(SUNDAY)), INTERVAL 7 DAY)
@@ -280,15 +267,10 @@ Example — top customers by outstanding balance (dollars):
 
 ```sql
 SELECT
-  COALESCE(
-    NULLIF(TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), ''),
-    NULLIF(TRIM(c.first_name), ''),
-    NULLIF(TRIM(c.last_name), ''),
-    '[Name Not Provided]'
-  ) AS customer_name,
+  {_SQL_CUSTOMER_DISPLAY_NAME.replace(' AS customer', ' AS customer_name')},
   ROUND(SUM(j.outstanding_balance) / 100, 2) AS total_outstanding_dollars
-FROM `mastermechanical.dev_Master_Mechanical.jobs` AS j
-JOIN `mastermechanical.dev_Master_Mechanical.customers` AS c ON j.customer.id = c.id
+FROM `{BIGQUERY_DATASET_REF}.jobs` AS j
+JOIN `{BIGQUERY_DATASET_REF}.customers` AS c ON j.customer.id = c.id
 WHERE j.outstanding_balance > 0
 GROUP BY customer_name
 ORDER BY total_outstanding_dollars DESC
@@ -310,7 +292,7 @@ SELECT
     TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))
   ) AS display_name,
   email
-FROM `mastermechanical.dev_Master_Mechanical.employees`
+FROM `{BIGQUERY_DATASET_REF}.employees`
 WHERE active IS TRUE OR active IS NULL
 ORDER BY display_name, email
 ```
@@ -641,13 +623,13 @@ def _instruction_with_session_identity(ctx: ReadonlyContext) -> str:
 
 root_agent = LlmAgent(
     name="master_mechanical_agent",
-    # Prefer a non-lite Flash-family model so tool/function calling stays reliable with ADK;
-    # flash-lite + function_call-only turns can surface as empty text in the UI (see README).
+    # Intentional flash-lite model for cost/latency; lite models can emit function_call-only
+    # turns with empty assistant text in some ADK UIs — switch to a non-lite Flash if that occurs.
     model="gemini-3.1-flash-lite-preview",
     description=(
         "HVAC and business assistant for Master Mechanical: technical HVAC help plus read-only "
         "BigQuery insights on customers, jobs, employees, and receivables (balances owed, past due) "
-        "in mastermechanical.dev_Master_Mechanical. Tone follows session (owner vs other users)."
+        f"in {BIGQUERY_DATASET_REF}. Tone follows session (owner vs other users)."
     ),
     instruction=_instruction_with_session_identity,
     tools=[bigquery_toolset, load_artifacts_tool, SummarizeSpreadsheetTool()],

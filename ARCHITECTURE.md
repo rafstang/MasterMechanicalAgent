@@ -89,7 +89,7 @@ sequenceDiagram
 
 **Production hardening**
 
-- **`AG_UI_INVOKER_SECRET`**: when set on the FastAPI service, POST requests must include matching **`X-AG-UI-Token`** (Next.js adds it when the env var is set). Prevents unauthenticated callers from hitting the AG-UI backend if it is network-reachable.
+- **`AG_UI_INVOKER_SECRET`**: **required** in production. POST requests must include matching **`X-AG-UI-Token`** (Next.js adds it when the env var is set). For local dev only, set **`AG_UI_ALLOW_UNAUTHENTICATED=true`** on the backend.
 
 ---
 
@@ -104,7 +104,7 @@ src/agents/
     └── ag_ui_app.py         # FastAPI + ADK App (SaveFilesAsArtifactsPlugin) for AG-UI / CopilotKit
 ```
 
-- **`agent.py`**: Defines `root_agent` — model (`gemini-3.1-flash-lite-preview`), **`BigQueryToolset`** with **`WriteMode.BLOCKED`**, **`load_artifacts`**, **`summarize_spreadsheet`**, filtered BigQuery tools, and lifecycle callbacks that maintain **`run_status`** in session state for UI feedback.
+- **`agent.py`**: Defines `root_agent` — model (`gemini-3.1-flash-lite-preview`, intentional flash-lite for cost/latency; see README if tool UI shows empty text), **`BigQueryToolset`** with **`WriteMode.BLOCKED`**, **`load_artifacts`**, **`summarize_spreadsheet`**, filtered BigQuery tools, and lifecycle callbacks that maintain **`run_status`** in session state for UI feedback.
 - **`ag_ui_app.py`**: Wraps `root_agent` in an ADK **`App`** with **`SaveFilesAsArtifactsPlugin`**, then **`ADKAgent.from_app`** with in-memory ADK services, streaming options, and FastAPI endpoint registration via **`add_adk_fastapi_endpoint`**.
 
 ---
@@ -137,8 +137,8 @@ The chat panel width is controlled via CSS variable `--mm-sidebar-width` (defaul
 
 ### File attachments (inline MVP)
 
-- CopilotKit `attachments` prop accepts PDF, CSV, text, and Excel up to **5 MB**.
-- Files are read client-side as base64 and sent as AG-UI `BinaryInputContent` in chat messages (no separate upload API).
+- CopilotKit `attachments` prop accepts PDF, CSV, text, and Excel up to **5 MB** (see [`frontend/lib/attachments.ts`](frontend/lib/attachments.ts)).
+- Files are read client-side as base64 and sent as AG-UI **`DocumentInputContent`** in chat messages (no separate upload API).
 - Backend: `SaveFilesAsArtifactsPlugin` stores inline binary parts as session artifacts; `load_artifacts` and `summarize_spreadsheet` tools let the agent read them.
 
 ### Workspace panel
@@ -172,8 +172,11 @@ flowchart LR
 
 ## Testing and quality gates
 
-- **Python**: [`tests/test_agent.py`](tests/test_agent.py), [`tests/test_file_parsing.py`](tests/test_file_parsing.py) — smoke tests for `root_agent` configuration, attachment tools, CSV parsing, callback wiring, AG-UI middleware flags, and graceful handling of model **503** errors in `_on_model_error_callback`.
+- **Python**: [`tests/test_agent.py`](tests/test_agent.py), [`tests/test_file_parsing.py`](tests/test_file_parsing.py), [`tests/test_ag_ui_app.py`](tests/test_ag_ui_app.py), [`tests/test_multimodal_messages.py`](tests/test_multimodal_messages.py) — agent configuration, attachment parsing, AG-UI identity/invoker middleware, multimodal message shapes, and model error callbacks.
+- **CI**: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `pytest`, `ruff`, and frontend `lint` + `build`.
 - **E2E UI**: Documented in [`.cursor/rules/playwright-mcp-testing.mdc`](.cursor/rules/playwright-mcp-testing.mdc) — browser verification via Playwright MCP (not an npm Playwright suite in-repo by default).
+
+Environment variables are documented in [`README.md`](README.md) and [`.env.example`](.env.example).
 
 ---
 

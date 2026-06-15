@@ -17,20 +17,20 @@ export type ResizableCopilotSidebarProps = Omit<CopilotSidebarProps, "width"> & 
   children: ReactNode;
 };
 
+function readShowResizeHint(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return !localStorage.getItem("mm-resize-hint-dismissed");
+  } catch {
+    return true;
+  }
+}
+
 export function ResizableCopilotSidebar({ children, ...sidebarProps }: ResizableCopilotSidebarProps) {
   const { width, isDragging, startDrag, resetWidth, nudgeWidth, keyboardStep } =
     useResizableSidebarWidth();
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [showResizeHint, setShowResizeHint] = useState(false);
-
-  useEffect(() => {
-    try {
-      const dismissed = localStorage.getItem("mm-resize-hint-dismissed");
-      setShowResizeHint(!dismissed);
-    } catch {
-      setShowResizeHint(true);
-    }
-  }, []);
+  const [showResizeHint, setShowResizeHint] = useState(readShowResizeHint);
 
   const dismissResizeHint = useCallback(() => {
     setShowResizeHint(false);
