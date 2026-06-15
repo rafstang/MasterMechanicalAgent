@@ -11,6 +11,8 @@ from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from google.adk.apps import App
+from google.adk.plugins.save_files_as_artifacts_plugin import SaveFilesAsArtifactsPlugin
 from starlette.requests import Request
 
 # Importing the agent loads project `.env` and maps GOOGLE_GENAI_API_KEY → GOOGLE_API_KEY (see agent.py).
@@ -18,6 +20,12 @@ from src.agents.MasterMechanicalAgent.agent import root_agent  # noqa: E402
 
 # Headers the Next.js `/api/copilotkit` route sets from Auth.js (must not be overridden by client body).
 _IDENTITY_HEADER_NAMES = ("x-user-id", "x-user-email", "x-user-name")
+
+mastermechanical_app = App(
+    name="mastermechanical",
+    root_agent=root_agent,
+    plugins=[SaveFilesAsArtifactsPlugin()],
+)
 
 
 def _http_header_to_state_key(header_name: str) -> str:
@@ -64,9 +72,8 @@ def _user_id_from_request(inp: RunAgentInput) -> str:
     return "anonymous"
 
 
-adk_middleware_agent = ADKAgent(
-    adk_agent=root_agent,
-    app_name="mastermechanical",
+adk_middleware_agent = ADKAgent.from_app(
+    mastermechanical_app,
     user_id_extractor=_user_id_from_request,
     use_in_memory_services=True,
     emit_messages_snapshot=True,

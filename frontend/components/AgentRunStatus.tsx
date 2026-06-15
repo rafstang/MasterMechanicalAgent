@@ -26,7 +26,13 @@ function readRunStatus(state: unknown): RunStatusPayload | null {
 }
 
 function humanizeToolName(name: string): string {
-  return name.replace(/_/g, " ");
+  const labels: Record<string, string> = {
+    load_artifacts: "loading attachments",
+    summarize_spreadsheet: "parsing spreadsheet",
+    execute_sql: "querying BigQuery",
+    display_in_workspace: "opening workspace view",
+  };
+  return labels[name] ?? name.replace(/_/g, " ");
 }
 
 function labelFromRunStatus(rs: RunStatusPayload): string | null {

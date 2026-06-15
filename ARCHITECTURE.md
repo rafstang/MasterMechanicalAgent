@@ -99,12 +99,13 @@ sequenceDiagram
 src/agents/
 └── MasterMechanicalAgent/
     ├── __init__.py          # exports root_agent
-    ├── agent.py             # LlmAgent, BigQuery toolset, callbacks, instructions
-    └── ag_ui_app.py         # FastAPI + ADKAgent wrapper for AG-UI / CopilotKit
+    ├── agent.py             # LlmAgent, BigQuery toolset, artifact tools, callbacks, instructions
+    ├── file_parsing.py      # CSV/Excel summarization tool for attachments
+    └── ag_ui_app.py         # FastAPI + ADK App (SaveFilesAsArtifactsPlugin) for AG-UI / CopilotKit
 ```
 
-- **`agent.py`**: Defines `root_agent` — model (`gemini-3-flash-preview`), **`BigQueryToolset`** with **`WriteMode.BLOCKED`**, filtered tools (`list_dataset_ids`, `get_dataset_info`, `list_table_ids`, `get_table_info`, `execute_sql`), and lifecycle callbacks that maintain **`run_status`** in session state for UI feedback.
-- **`ag_ui_app.py`**: Builds **`ADKAgent`** around `root_agent` with in-memory ADK services, streaming options, and FastAPI endpoint registration via **`add_adk_fastapi_endpoint`**.
+- **`agent.py`**: Defines `root_agent` — model (`gemini-3.1-flash-lite-preview`), **`BigQueryToolset`** with **`WriteMode.BLOCKED`**, **`load_artifacts`**, **`summarize_spreadsheet`**, filtered BigQuery tools, and lifecycle callbacks that maintain **`run_status`** in session state for UI feedback.
+- **`ag_ui_app.py`**: Wraps `root_agent` in an ADK **`App`** with **`SaveFilesAsArtifactsPlugin`**, then **`ADKAgent.from_app`** with in-memory ADK services, streaming options, and FastAPI endpoint registration via **`add_adk_fastapi_endpoint`**.
 
 ---
 
@@ -123,10 +124,26 @@ src/agents/
 
 | Area | Role |
 |------|------|
-| [`frontend/app/page.tsx`](frontend/app/page.tsx) | CopilotKit sidebar, Google sign-in gate, run-status helpers |
+| [`frontend/app/page.tsx`](frontend/app/page.tsx) | CopilotKit sidebar, Google sign-in gate, workspace panel |
+| [`frontend/components/ResizableCopilotSidebar.tsx`](frontend/components/ResizableCopilotSidebar.tsx) | Drag-resizable sidebar width + file attachments |
+| [`frontend/components/workspace/`](frontend/components/workspace/) | Main workspace (welcome cards, tables, document preview) |
 | [`frontend/app/api/copilotkit/route.ts`](frontend/app/api/copilotkit/route.ts) | Server-side proxy to AG-UI backend with identity headers + invoker token |
 | [`frontend/auth.ts`](frontend/auth.ts) | Auth.js / Google provider configuration |
 | [`frontend/components/*`](frontend/components/) | Sidebar header and run status display |
+
+### Resizable sidebar
+
+The chat panel width is controlled via CSS variable `--mm-sidebar-width` (default `420px`), persisted in `localStorage` (`mm-sidebar-width`). Users drag the left edge of the fixed CopilotKit sidebar to resize (min `320px`, max `70vw`).
+
+### File attachments (inline MVP)
+
+- CopilotKit `attachments` prop accepts PDF, CSV, text, and Excel up to **5 MB**.
+- Files are read client-side as base64 and sent as AG-UI `BinaryInputContent` in chat messages (no separate upload API).
+- Backend: `SaveFilesAsArtifactsPlugin` stores inline binary parts as session artifacts; `load_artifacts` and `summarize_spreadsheet` tools let the agent read them.
+
+### Workspace panel
+
+The main content area shows welcome suggestion cards or content pinned via the `display_in_workspace` frontend tool (tables with CSV export, document preview).
 
 Environment variables for the frontend and AG-UI URL are documented in [`README.md`](README.md).
 
@@ -155,7 +172,7 @@ flowchart LR
 
 ## Testing and quality gates
 
-- **Python**: [`tests/test_agent.py`](tests/test_agent.py) — smoke tests for `root_agent` configuration, callback wiring, AG-UI middleware flags, and graceful handling of model **503** errors in `_on_model_error_callback`.
+- **Python**: [`tests/test_agent.py`](tests/test_agent.py), [`tests/test_file_parsing.py`](tests/test_file_parsing.py) — smoke tests for `root_agent` configuration, attachment tools, CSV parsing, callback wiring, AG-UI middleware flags, and graceful handling of model **503** errors in `_on_model_error_callback`.
 - **E2E UI**: Documented in [`.cursor/rules/playwright-mcp-testing.mdc`](.cursor/rules/playwright-mcp-testing.mdc) — browser verification via Playwright MCP (not an npm Playwright suite in-repo by default).
 
 ---

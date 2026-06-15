@@ -3,6 +3,23 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --mm-sidebar-width: 420px;
+}
+
+@media (min-width: 640px) {
+  .copilotKitSidebar .copilotKitWindow {
+    width: var(--mm-sidebar-width) !important;
+  }
+
+  .copilotKitSidebarContentWrapper.sidebarExpanded {
+    margin-right: var(--mm-sidebar-width) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copilotKitSidebarContentWrapper {
+    transition: none !important;
+  }
 }
 
 @theme inline {

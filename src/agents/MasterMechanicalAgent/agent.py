@@ -29,8 +29,11 @@ from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.bigquery.bigquery_credentials import BigQueryCredentialsConfig
 from google.adk.tools.bigquery.bigquery_toolset import BigQueryToolset
 from google.adk.tools.bigquery.config import BigQueryToolConfig, WriteMode
+from google.adk.tools.load_artifacts_tool import load_artifacts_tool
 from google.genai.errors import APIError as GenaiAPIError
 import google.auth
+
+from src.agents.MasterMechanicalAgent.file_parsing import SummarizeSpreadsheetTool
 
 logger = logging.getLogger(__name__)
 
@@ -180,11 +183,39 @@ after verifying parsing, or compare the first four characters if values are ISO-
 **Reporting money:** Assume USD unless data says otherwise. Include customer name/id and job or
 invoice_number when present.
 
-**Technician / employee reporting:** Prefer `employees` for display: use `COALESCE(NULLIF(TRIM(name), ''),
-  TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))))` (or equivalent) for a
-  readable label, then show `employees.id` in parentheses. If an ID from a job or appointment has no
-  matching `employees` row, label it **unmatched employee ID**—do not claim the dataset lacks names
-  globally.
+**Technician / employee reporting:** Prefer `employees` for display. When listing employees,
+always SELECT a computed `display_name` column — never return a raw empty `name` column:
+
+```sql
+SELECT
+  role,
+  COALESCE(
+    NULLIF(TRIM(name), ''),
+    TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))
+  ) AS display_name,
+  email,
+  id
+FROM `mastermechanical.dev_Master_Mechanical.employees`
+WHERE active IS TRUE OR active IS NULL
+ORDER BY display_name, email
+```
+
+If an ID from a job or appointment has no matching `employees` row, label it **unmatched employee ID**—do not claim the dataset lacks names globally.
+
+**Chat table formatting:** Keep chat tables to **3–4 columns** when possible (for example Role,
+display_name, email). Put long IDs in a separate column only when the user asks for IDs, and
+truncate IDs longer than 12 characters in chat with "…" (show the full value when they ask or
+when using the `display_in_workspace` client tool for wide results).
+
+**Attachments:** When the user attaches PDF, CSV, text, or Excel files, call `load_artifacts`
+with the uploaded filename before answering about file contents. For CSV/Excel/tabular files,
+also call `summarize_spreadsheet` to get columns, row counts, and sample rows. Never claim to
+have read a file without using these tools. Offer to compare uploaded spreadsheets against
+BigQuery customers, jobs, or invoices when relevant.
+
+**Workspace display:** When a result has many columns or long values, call the client tool
+`display_in_workspace` with `type: "table"`, a title, `columns`, and `rows` so the user can
+view it in the main panel.
 
 **Multi-turn consistency:** When the user refers to "those jobs", "that week", or similar, reuse the
 **exact same** date range, region, and filters as the prior answer unless they explicitly change scope.
@@ -489,7 +520,7 @@ root_agent = LlmAgent(
         "in mastermechanical.dev_Master_Mechanical. Tone follows session (owner vs other users)."
     ),
     instruction=_instruction_with_session_identity,
-    tools=[bigquery_toolset],
+    tools=[bigquery_toolset, load_artifacts_tool, SummarizeSpreadsheetTool()],
     before_model_callback=_before_model_callback,
     after_model_callback=_after_model_callback,
     before_tool_callback=_before_tool_callback,
