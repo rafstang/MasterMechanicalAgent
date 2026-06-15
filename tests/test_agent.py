@@ -29,6 +29,20 @@ def test_ag_ui_middleware_status_features_enabled():
     )
 
 
+def test_agent_instruction_documents_money_in_cents():
+    assert "cents" in _AGENT_INSTRUCTION.lower() or "pennies" in _AGENT_INSTRUCTION.lower()
+    assert "/ 100" in _AGENT_INSTRUCTION
+
+
+def test_agent_instruction_prefers_customer_job_columns_over_ids():
+    assert "User-facing job lists" in _AGENT_INSTRUCTION
+    assert "customer" in _AGENT_INSTRUCTION.lower()
+    assert "start_az" in _AGENT_INSTRUCTION
+
+    assert "cents" in _AGENT_INSTRUCTION.lower() or "pennies" in _AGENT_INSTRUCTION.lower()
+    assert "/ 100" in _AGENT_INSTRUCTION
+
+
 def test_agent_instruction_documents_employees_table():
     assert "dev_Master_Mechanical.employees" in _AGENT_INSTRUCTION
     assert "assigned_employees" in _AGENT_INSTRUCTION

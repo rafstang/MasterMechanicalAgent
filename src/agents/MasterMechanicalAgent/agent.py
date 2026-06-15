@@ -155,6 +155,51 @@ after verifying parsing, or compare the first four characters if values are ISO-
   anytime (BOOL), arrival_window_minutes, dispatched_employees_ids (REPEATED STRING). Join:
   `job_appointments.job_id = jobs.id`.
 
+**Scheduling / "jobs this week" queries:** Prefer `job_appointments.start_time` (TIMESTAMP) for
+"scheduled this week", "today", or date-range questions. `start_date` is often NULL even when
+`start_time` is populated — do not conclude there are no scheduled jobs based on `start_date` alone.
+Use the **Current date and time** block for the current week window. Always **JOIN `customers`**
+on `jobs.customer.id = customers.id` so you can show who the job is for.
+
+**User-facing job lists (default):** Do **not** lead with `job_id`, `customer.id`, or other internal
+IDs unless the user explicitly asks for IDs. Prefer human-readable columns:
+- **Customer** — `COALESCE(NULLIF(TRIM(c.company_name), ''), TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '[Name Not Provided]')`
+- **Job** — `COALESCE(NULLIF(TRIM(j.name), ''), NULLIF(TRIM(j.description), ''), NULLIF(TRIM(j.invoice_number), ''), 'Unnamed job')`
+- **Start / End** — format `start_time` and `end_time` in the session timezone (default
+  `America/Phoenix`), not raw UTC, and label the column accordingly (e.g. "Start (AZ)").
+- Optional when helpful: `j.work_status`, service address from `c.addresses` (city/state), or
+  technician `display_name` via `assigned_employees` → `employees`.
+
+Example — jobs scheduled this week (customer-focused; no IDs in output):
+
+```sql
+SELECT
+  COALESCE(
+    NULLIF(TRIM(c.company_name), ''),
+    TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))),
+    '[Name Not Provided]'
+  ) AS customer,
+  COALESCE(
+    NULLIF(TRIM(j.name), ''),
+    NULLIF(TRIM(j.description), ''),
+    NULLIF(TRIM(j.invoice_number), ''),
+    'Unnamed job'
+  ) AS job,
+  FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', ja.start_time, 'America/Phoenix') AS start_az,
+  FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', ja.end_time, 'America/Phoenix') AS end_az,
+  j.work_status
+FROM `mastermechanical.dev_Master_Mechanical.job_appointments` AS ja
+JOIN `mastermechanical.dev_Master_Mechanical.jobs` AS j ON ja.job_id = j.id
+LEFT JOIN `mastermechanical.dev_Master_Mechanical.customers` AS c ON j.customer.id = c.id
+WHERE ja.start_time IS NOT NULL
+  AND ja.start_time >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), WEEK(SUNDAY))
+  AND ja.start_time < TIMESTAMP_ADD(TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), WEEK(SUNDAY)), INTERVAL 7 DAY)
+ORDER BY ja.start_time
+```
+
+If the user asks to use `start_time` after you used `start_date`, rerun with `start_time` and briefly
+acknowledge the correction.
+
 - `employees` — `id` (STRING, matches job/appointment employee IDs), `first_name`, `last_name`, `name`,
   `email`, `mobile_number`, `home_number`, `office_number`, `role`, `active` (BOOL), `created_at` (STRING),
   `updated_at` (STRING). Use for technician names, emails, and phones.
@@ -174,14 +219,36 @@ after verifying parsing, or compare the first four characters if values are ISO-
 **Receivables / business-focused queries:**
 - Primary AR signal on the job: `jobs.outstanding_balance` and `jobs.total_amount`.
 - Invoice rollups: `job_invoices.total`, `job_invoices.status`, `job_invoices.invoice_number`.
+- **Money is stored in cents (pennies), not dollars.** `jobs.outstanding_balance`, `jobs.total_amount`,
+  and `job_invoices.total` must be **divided by 100** before presenting amounts to the user or
+  comparing to real-world dollar figures. Raw `602045` means **$6,020.45**, not $602,045.
+  In SQL, always project dollars explicitly, e.g. `j.outstanding_balance / 100 AS outstanding_dollars`.
 - There is no dedicated "due date" column in this snapshot; for "past due" or aging, combine status
   fields with `created_at` / `updated_at` on jobs or invoices, or schedule dates, and state
   assumptions clearly.
-- Rank "who owes the most": aggregate `SUM(jobs.outstanding_balance)` (or invoice totals) grouped
-  by customer via `jobs.customer.id` joined to `customers`.
+- Rank "who owes the most": aggregate `SUM(j.outstanding_balance) / 100` grouped by customer via
+  `jobs.customer.id` joined to `customers`. Filter `outstanding_balance > 0`.
 
-**Reporting money:** Assume USD unless data says otherwise. Include customer name/id and job or
-invoice_number when present.
+Example — top customers by outstanding balance (dollars):
+
+```sql
+SELECT
+  COALESCE(
+    NULLIF(TRIM(c.company_name), ''),
+    TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')))
+  ) AS customer_name,
+  ROUND(SUM(j.outstanding_balance) / 100, 2) AS total_outstanding_dollars
+FROM `mastermechanical.dev_Master_Mechanical.jobs` AS j
+JOIN `mastermechanical.dev_Master_Mechanical.customers` AS c ON j.customer.id = c.id
+WHERE j.outstanding_balance > 0
+GROUP BY customer_name
+ORDER BY total_outstanding_dollars DESC
+LIMIT 10
+```
+
+**Reporting money:** Assume USD unless data says otherwise. Amounts from BigQuery are in **cents** —
+divide by 100 for dollar display (e.g. `$6,020.45`). Include customer name and job or invoice_number
+when present; omit internal IDs unless the user asks for them.
 
 **Technician / employee reporting:** Prefer `employees` for display. When listing employees,
 always SELECT a computed `display_name` column — never return a raw empty `name` column:
@@ -193,8 +260,7 @@ SELECT
     NULLIF(TRIM(name), ''),
     TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))
   ) AS display_name,
-  email,
-  id
+  email
 FROM `mastermechanical.dev_Master_Mechanical.employees`
 WHERE active IS TRUE OR active IS NULL
 ORDER BY display_name, email
@@ -202,10 +268,11 @@ ORDER BY display_name, email
 
 If an ID from a job or appointment has no matching `employees` row, label it **unmatched employee ID**—do not claim the dataset lacks names globally.
 
-**Chat table formatting:** Keep chat tables to **3–4 columns** when possible (for example Role,
-display_name, email). Put long IDs in a separate column only when the user asks for IDs, and
-truncate IDs longer than 12 characters in chat with "…" (show the full value when they ask or
-when using the `display_in_workspace` client tool for wide results).
+**Chat table formatting:** Default to **business-meaningful columns** (customer name, job label,
+amounts, dates, status)—not internal IDs. Keep chat tables to **3–5 columns** when possible.
+Omit `job_id`, `customer.id`, and similar UUID-style fields unless the user asks for IDs; then you
+may add a truncated ID column (first 8 characters + "…"). For wide results (many rows or columns),
+use the `display_in_workspace` client tool instead of cramming IDs into chat.
 
 **Attachments:** When the user attaches PDF, CSV, text, or Excel files, call `load_artifacts`
 with the uploaded filename before answering about file contents. For CSV/Excel/tabular files,

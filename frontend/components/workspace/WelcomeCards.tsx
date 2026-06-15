@@ -1,6 +1,8 @@
 "use client";
 
-import { useCopilotChatHeadless_c } from "@copilotkit/react-core";
+import { useCopilotChatInternal } from "@copilotkit/react-core";
+import { randomUUID } from "@copilotkit/shared";
+import { useCallback, useState } from "react";
 
 const SUGGESTIONS = [
   {
@@ -22,7 +24,25 @@ const SUGGESTIONS = [
 ] as const;
 
 export function WelcomeCards() {
-  const { sendMessage } = useCopilotChatHeadless_c();
+  const { sendMessage, isLoading } = useCopilotChatInternal();
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+
+  const runSuggestion = useCallback(
+    async (prompt: string) => {
+      if (isLoading || pendingPrompt) return;
+      setPendingPrompt(prompt);
+      try {
+        await sendMessage({
+          id: randomUUID(),
+          role: "user",
+          content: prompt,
+        });
+      } finally {
+        setPendingPrompt(null);
+      }
+    },
+    [isLoading, pendingPrompt, sendMessage]
+  );
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -32,23 +52,25 @@ export function WelcomeCards() {
         files in the chat panel. Drag the sidebar edge to widen it for tables.
       </p>
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        {SUGGESTIONS.map((item) => (
-          <button
-            key={item.title}
-            type="button"
-            onClick={() =>
-              sendMessage({
-                id: crypto.randomUUID(),
-                role: "user",
-                content: item.prompt,
-              })
-            }
-            className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50"
-          >
-            <span className="block text-sm font-medium text-zinc-900">{item.title}</span>
-            <span className="mt-1 block text-xs text-zinc-500">{item.prompt}</span>
-          </button>
-        ))}
+        {SUGGESTIONS.map((item) => {
+          const isPending = pendingPrompt === item.prompt;
+          const disabled = isLoading || Boolean(pendingPrompt);
+          return (
+            <button
+              key={item.title}
+              type="button"
+              disabled={disabled}
+              onClick={() => void runSuggestion(item.prompt)}
+              className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="block text-sm font-medium text-zinc-900">
+                {item.title}
+                {isPending ? "…" : ""}
+              </span>
+              <span className="mt-1 block text-xs text-zinc-500">{item.prompt}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

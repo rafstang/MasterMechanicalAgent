@@ -4,7 +4,7 @@ requires-python = ">=3.14"
 
 [[package]]
 name = "ag-ui-adk"
-version = "0.5.1"
+version = "0.6.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ag-ui-protocol" },
@@ -13,23 +13,24 @@ dependencies = [
     { name = "fastapi" },
     { name = "google-adk" },
     { name = "pydantic" },
+    { name = "sse-starlette" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/90/2b924f5e32dde282f8ec93fedaeffea9d1528d8f1b5d41ad405b6c1e8a54/ag_ui_adk-0.5.1.tar.gz", hash = "sha256:53cc59583f5610cee908d00219f0a09241a0b9c6a004dcbc22afe4dcd1317ce2", size = 58496, upload-time = "2026-03-05T16:46:08.955Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/db/b146b69d98ce13dbc6a5e0f836976b279f9411ea5b9454c6cc2f7accd6c0/ag_ui_adk-0.6.5.tar.gz", hash = "sha256:0d1b415f424d4addd876f8c991b3847eaa6a2febe2dc859a6a5e8966b164b400", size = 81328, upload-time = "2026-05-28T07:34:07.737Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/0f/26434145864a523f3ad5e810b2790175da5cae5fc012ff4c285706134676/ag_ui_adk-0.5.1-py3-none-any.whl", hash = "sha256:e3343fa32e5d03da36010e75775f73491828e95d06cc18fc9dce0922f3154fed", size = 65239, upload-time = "2026-03-05T16:46:07.645Z" },
+    { url = "https://files.pythonhosted.org/packages/14/47/0f16e065c1a26cb1512a028abc9dac350c9a0656b92a12712a7da8b11b29/ag_ui_adk-0.6.5-py3-none-any.whl", hash = "sha256:c8d0af9838e713161df55bcd72977c288388811fb424283ba050933d12cc704f", size = 87595, upload-time = "2026-05-28T07:34:08.707Z" },
 ]
 
 [[package]]
 name = "ag-ui-protocol"
-version = "0.1.14"
+version = "0.1.19"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/53/ee/319d189343e1dc67b1109c950a0d1091fe32498104b5917fbbd806ff58dd/ag_ui_protocol-0.1.14.tar.gz", hash = "sha256:d8e86b308f86a6cf6a5e18ca7154d7642895de2fe94cd2cece57723cdbba6406", size = 5687, upload-time = "2026-03-18T00:43:13.358Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a7/10/4ad299267a7d04b89935aa99eef62979758fcf95aee9f8bb5d70c35b1be1/ag_ui_protocol-0.1.19.tar.gz", hash = "sha256:43c27f60d41712dcad0e9e0a203cbdf1c8e248b22417374c5c68321c448af4ea", size = 10720, upload-time = "2026-06-02T17:26:15.627Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/99/eaa83816924791fc25ebb44ac7987196b687a3fdf597b1e7a62c69306a8d/ag_ui_protocol-0.1.14-py3-none-any.whl", hash = "sha256:ec072e6a45e0d45b8714e6d54919cc9bde3d097fdc36f7e82953b2f21f1cdbef", size = 8069, upload-time = "2026-03-18T00:43:12.1Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/0a/bcad8116eb058e4b4a305e3fc37ebd7efc879deeb86b854f1c5b8b6e97dd/ag_ui_protocol-0.1.19-py3-none-any.whl", hash = "sha256:898843b1410d378824da0c6a776486288b9c5828689d0bf563118868e37f390f", size = 13490, upload-time = "2026-06-02T17:26:16.313Z" },
 ]
 
 [[package]]
@@ -1198,7 +1199,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ag-ui-adk", specifier = ">=0.5.0" },
+    { name = "ag-ui-adk", specifier = ">=0.6.5" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "google-adk", specifier = ">=1.15.1" },
     { name = "openpyxl", specifier = ">=3.1.0" },
