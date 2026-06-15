@@ -29,18 +29,44 @@ def test_ag_ui_middleware_status_features_enabled():
     )
 
 
+def test_agent_instruction_documents_bigquery_project_id():
+    assert "project_id" in _AGENT_INSTRUCTION
+    assert "mastermechanical.dev_Master_Mechanical" in _AGENT_INSTRUCTION
+    assert "Never" in _AGENT_INSTRUCTION or "never" in _AGENT_INSTRUCTION
+    assert 'project_id="mastermechanical"' in _AGENT_INSTRUCTION
+
+
+def test_bigquery_tool_config_pins_compute_project():
+    from src.agents.MasterMechanicalAgent.agent import (
+        BIGQUERY_PROJECT_ID,
+        tool_config,
+    )
+
+    assert BIGQUERY_PROJECT_ID == "mastermechanical"
+    assert tool_config.compute_project_id == "mastermechanical"
+
+
 def test_agent_instruction_documents_money_in_cents():
     assert "cents" in _AGENT_INSTRUCTION.lower() or "pennies" in _AGENT_INSTRUCTION.lower()
     assert "/ 100" in _AGENT_INSTRUCTION
+
+
+def test_agent_instruction_requires_workspace_for_long_tables():
+    assert "display_in_workspace" in _AGENT_INSTRUCTION
+    assert "Markdown table" in _AGENT_INSTRUCTION or "markdown table" in _AGENT_INSTRUCTION.lower()
+    assert "pseudo-table" in _AGENT_INSTRUCTION
+
+
+def test_agent_instruction_never_uses_company_name_for_customer_display():
+    assert "Customer display name" in _AGENT_INSTRUCTION
+    assert "not the end-customer" in _AGENT_INSTRUCTION or "not the customer" in _AGENT_INSTRUCTION.lower()
+    assert "Never use `customers.company_name`" in _AGENT_INSTRUCTION
 
 
 def test_agent_instruction_prefers_customer_job_columns_over_ids():
     assert "User-facing job lists" in _AGENT_INSTRUCTION
     assert "customer" in _AGENT_INSTRUCTION.lower()
     assert "start_az" in _AGENT_INSTRUCTION
-
-    assert "cents" in _AGENT_INSTRUCTION.lower() or "pennies" in _AGENT_INSTRUCTION.lower()
-    assert "/ 100" in _AGENT_INSTRUCTION
 
 
 def test_agent_instruction_documents_employees_table():

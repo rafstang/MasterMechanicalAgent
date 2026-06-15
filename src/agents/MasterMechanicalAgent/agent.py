@@ -37,6 +37,13 @@ from src.agents.MasterMechanicalAgent.file_parsing import SummarizeSpreadsheetTo
 
 logger = logging.getLogger(__name__)
 
+# GCP BigQuery scope — project_id for tools is ONLY the project, not project.dataset.
+BIGQUERY_PROJECT_ID = (
+    os.environ.get("GOOGLE_CLOUD_PROJECT") or "mastermechanical"
+).strip()
+BIGQUERY_DATASET_ID = "dev_Master_Mechanical"
+BIGQUERY_DATASET_REF = f"{BIGQUERY_PROJECT_ID}.{BIGQUERY_DATASET_ID}"
+
 # Define an appropriate credential type
 CREDENTIALS_TYPE = AuthCredentialTypes.SERVICE_ACCOUNT
 
@@ -45,7 +52,11 @@ CREDENTIALS_TYPE = AuthCredentialTypes.SERVICE_ACCOUNT
 # BLOCKED: Default mode. Effectively makes the tool read-only.
 # PROTECTED: Only allows writes on temporary data for a given BigQuery session.
 
-tool_config = BigQueryToolConfig(write_mode=WriteMode.BLOCKED)
+tool_config = BigQueryToolConfig(
+    write_mode=WriteMode.BLOCKED,
+    compute_project_id=BIGQUERY_PROJECT_ID,
+    application_name="mastermechanical-agent",
+)
 
 if CREDENTIALS_TYPE == AuthCredentialTypes.OAUTH2:
     # Initialize the tools to do interactive OAuth
@@ -117,6 +128,19 @@ employees or technicians, scheduling, invoices, or money owed (balances, past du
 **Dataset:** `mastermechanical.dev_Master_Mechanical`. Always use fully qualified table names:
 `mastermechanical.dev_Master_Mechanical.<table>`.
 
+**BigQuery tool parameters (critical — wrong values cause failed tool calls):**
+- `project_id` on every BigQuery tool (`execute_sql`, `list_dataset_ids`, `get_table_info`, etc.)
+  must be **`mastermechanical`** — the GCP project id only.
+- `dataset_id` on metadata tools (`get_dataset_info`, `list_table_ids`, `get_table_info`) is
+  **`dev_Master_Mechanical`** — separate from `project_id`.
+- **Never** pass `mastermechanical.dev_Master_Mechanical` as `project_id`; that string is
+  `project.dataset`, not a valid GCP project id.
+- **Never** guess other project ids (`mastermechanical-dev`, `mastermechanical-427318`, etc.).
+- Do **not** call `list_dataset_ids` to "find" the project when running business queries — you
+  already know `project_id=mastermechanical` and the dataset above.
+- For `execute_sql`, pass only `project_id` and `query` (SQL already contains fully qualified
+  table names). Example tool args: `project_id="mastermechanical"`, not the dataset path.
+
 **Ignore staging tables:** Do not query tables whose names end with `_staging` (for example
 `customers_staging`, `jobs_staging`) unless the user explicitly asks for staging or pipeline/debug
 data. Use the canonical tables: `customers`, `jobs`, `job_invoices`, `job_appointments`, `employees`,
@@ -140,6 +164,9 @@ after verifying parsing, or compare the first four characters if values are ISO-
   notifications_enabled (BOOL), phones (mobile_number, home_number, work_number), lead_source, notes,
   created_at (STRING), updated_at (STRING). Nested / repeated: `addresses` (id, type, street,
   street_line_2, city, state, zip, country). UNNEST(addresses) when filtering on address fields.
+  **Display warning:** `customers.company_name` is the HVAC business name (`Master Mechanical`) on
+  nearly every row — **not** the end-customer's name. Never use `customers.company_name` or
+  `jobs.company_name` as the customer label in reports.
 
 - `jobs` — id, invoice_number, name, description, company_name, company_id, work_status,
   total_amount (FLOAT), outstanding_balance (FLOAT), lead_source, created_at (STRING), updated_at (STRING),
@@ -155,6 +182,20 @@ after verifying parsing, or compare the first four characters if values are ISO-
   anytime (BOOL), arrival_window_minutes, dispatched_employees_ids (REPEATED STRING). Join:
   `job_appointments.job_id = jobs.id`.
 
+**Customer display name (use everywhere you show a customer):** Build the label from
+`customers.first_name` / `customers.last_name` only. Commercial accounts may have only `first_name`
+(e.g. `Optimum`). Do **not** use `customers.company_name` or `jobs.company_name` — both are the
+HVAC business (`Master Mechanical`), not the customer.
+
+```sql
+COALESCE(
+  NULLIF(TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), ''),
+  NULLIF(TRIM(c.first_name), ''),
+  NULLIF(TRIM(c.last_name), ''),
+  '[Name Not Provided]'
+) AS customer
+```
+
 **Scheduling / "jobs this week" queries:** Prefer `job_appointments.start_time` (TIMESTAMP) for
 "scheduled this week", "today", or date-range questions. `start_date` is often NULL even when
 `start_time` is populated — do not conclude there are no scheduled jobs based on `start_date` alone.
@@ -163,20 +204,23 @@ on `jobs.customer.id = customers.id` so you can show who the job is for.
 
 **User-facing job lists (default):** Do **not** lead with `job_id`, `customer.id`, or other internal
 IDs unless the user explicitly asks for IDs. Prefer human-readable columns:
-- **Customer** — `COALESCE(NULLIF(TRIM(c.company_name), ''), TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '[Name Not Provided]')`
+- **Customer** — use the **Customer display name** expression above (never `company_name`).
 - **Job** — `COALESCE(NULLIF(TRIM(j.name), ''), NULLIF(TRIM(j.description), ''), NULLIF(TRIM(j.invoice_number), ''), 'Unnamed job')`
 - **Start / End** — format `start_time` and `end_time` in the session timezone (default
   `America/Phoenix`), not raw UTC, and label the column accordingly (e.g. "Start (AZ)").
 - Optional when helpful: `j.work_status`, service address from `c.addresses` (city/state), or
   technician `display_name` via `assigned_employees` → `employees`.
+- **Presentation:** For **3 or more** scheduled jobs, call `display_in_workspace` (see below) and
+  keep chat to a short summary (count + date range). Do **not** paste a long run-on list in chat.
 
 Example — jobs scheduled this week (customer-focused; no IDs in output):
 
 ```sql
 SELECT
   COALESCE(
-    NULLIF(TRIM(c.company_name), ''),
-    TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))),
+    NULLIF(TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), ''),
+    NULLIF(TRIM(c.first_name), ''),
+    NULLIF(TRIM(c.last_name), ''),
     '[Name Not Provided]'
   ) AS customer,
   COALESCE(
@@ -196,6 +240,9 @@ WHERE ja.start_time IS NOT NULL
   AND ja.start_time < TIMESTAMP_ADD(TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), WEEK(SUNDAY)), INTERVAL 7 DAY)
 ORDER BY ja.start_time
 ```
+
+After this query, call `display_in_workspace` with `columns` `["Customer", "Job", "Start (AZ)", "End (AZ)", "Status"]`
+and `rows` as string arrays (one array per job). Example chat reply: "17 jobs scheduled this week — see the table in the main panel."
 
 If the user asks to use `start_time` after you used `start_date`, rerun with `start_time` and briefly
 acknowledge the correction.
@@ -234,8 +281,10 @@ Example — top customers by outstanding balance (dollars):
 ```sql
 SELECT
   COALESCE(
-    NULLIF(TRIM(c.company_name), ''),
-    TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')))
+    NULLIF(TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), ''),
+    NULLIF(TRIM(c.first_name), ''),
+    NULLIF(TRIM(c.last_name), ''),
+    '[Name Not Provided]'
   ) AS customer_name,
   ROUND(SUM(j.outstanding_balance) / 100, 2) AS total_outstanding_dollars
 FROM `mastermechanical.dev_Master_Mechanical.jobs` AS j
@@ -270,19 +319,33 @@ If an ID from a job or appointment has no matching `employees` row, label it **u
 
 **Chat table formatting:** Default to **business-meaningful columns** (customer name, job label,
 amounts, dates, status)—not internal IDs. Keep chat tables to **3–5 columns** when possible.
-Omit `job_id`, `customer.id`, and similar UUID-style fields unless the user asks for IDs; then you
-may add a truncated ID column (first 8 characters + "…"). For wide results (many rows or columns),
-use the `display_in_workspace` client tool instead of cramming IDs into chat.
+Omit `job_id`, `customer.id`, and similar UUID-style fields unless the user asks for IDs.
+
+**Never** output a pseudo-table by printing column headers on one line and then concatenating row
+values without separators (e.g. `Master MechanicalAC Diagnosis2026-06-14 14:002026-06-14 17:00in progress`).
+That is unreadable in the narrow chat sidebar.
+
+When you must show a table **in chat** (few rows only), use a proper **Markdown table** — one row
+per line, pipe-separated cells, blank line before the table:
+
+| Customer | Job | Start (AZ) | End (AZ) | Status |
+| --- | --- | --- | --- | --- |
+| Jane Smith | AC Diagnostic | 2026-06-14 14:00 | 2026-06-14 17:00 | scheduled |
+
+For **3+ rows** or **4+ columns**, use `display_in_workspace` instead of a chat table.
+
+**Workspace display (preferred for lists):** Call the client tool `display_in_workspace` with
+`type: "table"`, a `title`, `columns` (string array), and `rows` (array of string arrays — each
+inner array is one row, values aligned to `columns`). Use this for weekly job schedules, employee
+lists, receivables rankings, and any result that would be hard to read in chat. In chat, summarize
+briefly and point the user to the main panel (they can widen the sidebar or use the workspace table
+with CSV export).
 
 **Attachments:** When the user attaches PDF, CSV, text, or Excel files, call `load_artifacts`
 with the uploaded filename before answering about file contents. For CSV/Excel/tabular files,
 also call `summarize_spreadsheet` to get columns, row counts, and sample rows. Never claim to
 have read a file without using these tools. Offer to compare uploaded spreadsheets against
 BigQuery customers, jobs, or invoices when relevant.
-
-**Workspace display:** When a result has many columns or long values, call the client tool
-`display_in_workspace` with `type: "table"`, a title, `columns`, and `rows` so the user can
-view it in the main panel.
 
 **Multi-turn consistency:** When the user refers to "those jobs", "that week", or similar, reuse the
 **exact same** date range, region, and filters as the prior answer unless they explicitly change scope.
