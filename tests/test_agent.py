@@ -103,7 +103,7 @@ def test_instruction_with_current_date_includes_timezone(monkeypatch):
 
 
 def test_bigquery_tool_config_pins_compute_project():
-    from src.agents.MasterMechanicalAgent.agent import (
+    from src.agents.MasterMechanicalAgent.bigquery_config import (
         BIGQUERY_PROJECT_ID,
         tool_config,
     )

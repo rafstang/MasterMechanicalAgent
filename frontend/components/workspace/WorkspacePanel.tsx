@@ -17,8 +17,7 @@ export function WorkspacePanel() {
       {
         name: "type",
         type: "string",
-        description: "Content type: table or document",
-        required: true,
+        description: 'Content type: "table" or "document". Omit when passing columns+rows (table) or mimeType+url (document).',
       },
       {
         name: "title",
@@ -61,7 +60,7 @@ export function WorkspacePanel() {
       url,
       filename,
     }: {
-      type: string;
+      type?: string;
       title: string;
       columns?: string[];
       rows?: Array<string[] | Record<string, unknown>>;
@@ -69,14 +68,18 @@ export function WorkspacePanel() {
       url?: string;
       filename?: string;
     }) => {
-      if (type === "table" && columns && rows) {
+      const resolvedType =
+        type ??
+        (columns && rows ? "table" : mimeType && url ? "document" : undefined);
+
+      if (resolvedType === "table" && columns && rows) {
         const normalizedRows = rows.map((row) =>
           Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : columns.map(() => "")
         );
         setContent({ type: "table", title, columns, rows: normalizedRows });
         return "Displayed table in workspace.";
       }
-      if (type === "document" && mimeType && url) {
+      if (resolvedType === "document" && mimeType && url) {
         setContent({ type: "document", title, mimeType, url, filename });
         return "Displayed document in workspace.";
       }

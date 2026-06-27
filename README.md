@@ -30,6 +30,7 @@ Configure via environment variables or a `.env` file in `src/agents/MasterMechan
 | `GOOGLE_CLOUD_PROJECT` | Optional. GCP project id for BigQuery tools (default `mastermechanical`). |
 | `AGENT_TIMEZONE` | Optional. IANA timezone for the **current date/time** line appended to agent instructions (default `America/Phoenix`). Example: `UTC`. |
 | `MASTER_MECHANICAL_OWNER_EMAIL` | Optional. If set to the signed-in user’s email (AG-UI / Auth.js), the assistant uses owner-oriented framing; if unset, no account is treated as the owner. |
+| `HOUSECALL_PRO_API_KEY` | Required for **HouseCall Pro record updates** (field technicians updating customer/job info). MAX-plan API key; kept server-side only. BigQuery reads work without it. |
 | `AG_UI_ALLOW_UNAUTHENTICATED` | **Local dev only.** Set to `true` to run the AG-UI backend without `AG_UI_INVOKER_SECRET`. Do not use in production. |
 | `AG_UI_INVOKER_SECRET` | **Required in production.** Shared secret; Next.js sends it as `X-AG-UI-Token` to the FastAPI backend. |
 | `AG_UI_CORS_ORIGINS` | Comma-separated browser origins allowed by the AG-UI FastAPI CORS middleware (default `http://localhost:3000`). |
@@ -100,6 +101,7 @@ In [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/
 | Auth.js on Next.js | Google sign-in; identity headers set server-side only |
 | `AG_UI_CORS_ORIGINS` | Restrict browser-origin calls if clients hit the backend directly |
 | `MASTER_MECHANICAL_OWNER_EMAIL` | Limits “owner” framing to one verified email |
+| `HOUSECALL_PRO_API_KEY` | Server-side only; required for HCP record updates (not for BigQuery reads) |
 | BigQuery IAM on runtime SA | Read-only data access (`WriteMode.BLOCKED` in code) |
 
 **Deploy scripts:** [`scripts/deploy-copilotkit-cloud-run.sh`](scripts/deploy-copilotkit-cloud-run.sh) deploys **public** Cloud Run invokers (use invoker secret). [`scripts/deploy.sh`](scripts/deploy.sh) deploys a **single IAP-protected** AG-UI service without public invoker.
@@ -107,6 +109,21 @@ In [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/
 Do not expose the FastAPI AG-UI URL publicly without `AG_UI_INVOKER_SECRET` or IAP in front of it.
 
 If `uv sync` fails on Windows with “cannot access `adk.exe`”, close any process using the ADK CLI and retry.
+
+## HouseCall Pro record updates (field technicians)
+
+The root agent delegates customer and job **writes** to a dedicated **`hcp_records_agent`** subagent. Technicians use the same CopilotKit chat UI; no frontend changes are required.
+
+**Requirements:** HouseCall Pro **MAX** plan with a [Public API key](https://docs.housecallpro.com/). Set `HOUSECALL_PRO_API_KEY` on the Python backend (never in the browser).
+
+**Allowed updates (v1):**
+
+- **Customer:** contact info (phone, email), notes, service address
+- **Job:** notes, description, work status (`scheduled` / `in_progress` / `complete`), on-my-way / start / complete timestamps
+
+**Safety:** Every write uses a two-step **propose → confirm → apply** flow. The subagent shows a before/after diff and waits for an explicit “yes” before calling the HouseCall Pro API. Server-side allowlists block pricing, scheduling, reassignment, deletes, and other sensitive fields.
+
+**Data freshness:** Updates go to HouseCall Pro immediately. BigQuery (`dev_Master_Mechanical`) may lag until the next sync pipeline run.
 
 ### Deploy CopilotKit UI to the web (Cloud Run)
 

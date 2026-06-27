@@ -14,7 +14,7 @@ There are **three ways** to run the agent:
 | ADK API server | `uv run adk api_server src/agents/MasterMechanicalAgent` | HTTP API for integrations / Cloud Run-style serving |
 | Custom UI | FastAPI **AG-UI** (`ag_ui_app.py`) + **Next.js** (CopilotKit) | Production-style chat with Google sign-in and per-user sessions |
 
-The **canonical agent definition** is a single `LlmAgent` instance (`root_agent`) in [`src/agents/MasterMechanicalAgent/agent.py`](src/agents/MasterMechanicalAgent/agent.py). The FastAPI app wraps that same object for the CopilotKit path.
+The **canonical agent definition** is a single `LlmAgent` instance (`root_agent`) in [`src/agents/MasterMechanicalAgent/agent.py`](src/agents/MasterMechanicalAgent/agent.py). It delegates HouseCall Pro record updates to **`hcp_records_agent`** via ADK `AgentTool`. The FastAPI app wraps that same object for the CopilotKit path.
 
 ---
 
@@ -35,9 +35,15 @@ flowchart TB
 
   subgraph python["Python runtime"]
     Agent["LlmAgent\nroot_agent"]
+    HCPAgent["hcp_records_agent\n(subagent)"]
     BQTools["BigQueryToolset\nread-only"]
+    HCPTools["HCP tools\nallowlisted writes"]
     AGUI["FastAPI + ag_ui_adk\nag_ui_app.py"]
     ADKRuntime["ADK web / api_server"]
+  end
+
+  subgraph hcp["HouseCall Pro"]
+    HCPAPI["Public API"]
   end
 
   Browser -->|"CopilotKit → /api/copilotkit"| AGUI
@@ -46,6 +52,10 @@ flowchart TB
   AGUI --> Agent
   Agent --> Gemini
   Agent --> BQTools
+  Agent -->|"AgentTool"| HCPAgent
+  HCPAgent --> BQTools
+  HCPAgent --> HCPTools
+  HCPTools --> HCPAPI
   BQTools --> BQ
   ADC --> BQTools
 ```
@@ -100,11 +110,15 @@ src/agents/
 └── MasterMechanicalAgent/
     ├── __init__.py          # exports root_agent
     ├── agent.py             # LlmAgent, BigQuery toolset, artifact tools, callbacks, instructions
+    ├── bigquery_config.py   # shared BigQuery toolset factory (root + HCP subagent)
     ├── file_parsing.py      # CSV/Excel summarization tool for attachments
-    └── ag_ui_app.py         # FastAPI + ADK App (SaveFilesAsArtifactsPlugin) for AG-UI / CopilotKit
+    ├── ag_ui_app.py         # FastAPI + ADK App (SaveFilesAsArtifactsPlugin) for AG-UI / CopilotKit
+    ├── hcp/                 # HouseCall Pro client, allowlists, confirmation, tools
+    └── subagents/
+        └── hcp_records_agent.py  # field-tech customer/job update specialist
 ```
 
-- **`agent.py`**: Defines `root_agent` — model (`gemini-3.1-flash-lite-preview`, intentional flash-lite for cost/latency; see README if tool UI shows empty text), **`BigQueryToolset`** with **`WriteMode.BLOCKED`**, **`load_artifacts`**, **`summarize_spreadsheet`**, filtered BigQuery tools, and lifecycle callbacks that maintain **`run_status`** in session state for UI feedback.
+- **`agent.py`**: Defines `root_agent` — model (`gemini-3.1-flash-lite-preview`, intentional flash-lite for cost/latency; see README if tool UI shows empty text), **`BigQueryToolset`** with **`WriteMode.BLOCKED`**, **`load_artifacts`**, **`summarize_spreadsheet`**, **`AgentTool(hcp_records_agent)`**, filtered BigQuery tools, and lifecycle callbacks that maintain **`run_status`** in session state for UI feedback.
 - **`ag_ui_app.py`**: Wraps `root_agent` in an ADK **`App`** with **`SaveFilesAsArtifactsPlugin`**, then **`ADKAgent.from_app`** with in-memory ADK services, streaming options, and FastAPI endpoint registration via **`add_adk_fastapi_endpoint`**.
 
 ---
@@ -117,6 +131,39 @@ src/agents/
 - **Domain tables** (non-exhaustive; see `agent.py` for the instruction cheat sheet): `customers`, `jobs`, `job_invoices`, `job_appointments`, `employees`, `tags`, `checklists`, `sync_metadata`. Staging tables (`*_staging`) are instructed to be ignored unless explicitly requested.
 
 **Supporting script**: [`scripts/export_bigquery_schema_for_agent.py`](scripts/export_bigquery_schema_for_agent.py) can dump schema (and optional samples) to Markdown to refresh documentation or prompt context.
+
+---
+
+## HouseCall Pro write path
+
+BigQuery remains **read-only**. Customer and job **updates** go through the HouseCall Pro Public API via the `hcp_records_agent` subagent.
+
+```mermaid
+sequenceDiagram
+  participant Tech as Technician
+  participant Root as root_agent
+  participant HCP as hcp_records_agent
+  participant BQ as BigQuery
+  participant API as HouseCallPro_API
+
+  Tech->>Root: Update customer phone on job X
+  Root->>HCP: AgentTool delegate
+  HCP->>BQ: execute_sql resolve IDs
+  HCP->>API: GET live record
+  HCP->>Tech: hcp_propose_update diff
+  Tech->>HCP: yes / confirm
+  HCP->>API: PATCH allowlisted fields
+  HCP->>Tech: success plus sync lag note
+```
+
+**Safety layers:**
+
+1. **Allowlist** (`hcp/allowlist.py`) — only field-tech fields pass validation
+2. **Confirmation** (`hcp/confirmation.py`) — pending update token in session; expires after 10 minutes
+3. **Auth gate** — `hcp_apply_update` requires signed-in `user_email` in `state.headers`
+4. **Audit log** — structured log on every applied update
+
+Set `HOUSECALL_PRO_API_KEY` on the Python backend. See [`README.md`](README.md) for allowed fields.
 
 ---
 
@@ -172,7 +219,7 @@ flowchart LR
 
 ## Testing and quality gates
 
-- **Python**: [`tests/test_agent.py`](tests/test_agent.py), [`tests/test_file_parsing.py`](tests/test_file_parsing.py), [`tests/test_ag_ui_app.py`](tests/test_ag_ui_app.py), [`tests/test_multimodal_messages.py`](tests/test_multimodal_messages.py) — agent configuration, attachment parsing, AG-UI identity/invoker middleware, multimodal message shapes, and model error callbacks.
+- **Python**: [`tests/test_agent.py`](tests/test_agent.py), [`tests/test_file_parsing.py`](tests/test_file_parsing.py), [`tests/test_ag_ui_app.py`](tests/test_ag_ui_app.py), [`tests/test_multimodal_messages.py`](tests/test_multimodal_messages.py), [`tests/test_hcp_allowlist.py`](tests/test_hcp_allowlist.py), [`tests/test_hcp_tools.py`](tests/test_hcp_tools.py), [`tests/test_hcp_subagent.py`](tests/test_hcp_subagent.py) — agent configuration, attachment parsing, AG-UI identity/invoker middleware, multimodal message shapes, model error callbacks, and HouseCall Pro allowlist/confirmation wiring.
 - **CI**: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `pytest`, `ruff`, and frontend `lint` + `build`.
 - **E2E UI**: Documented in [`.cursor/rules/playwright-mcp-testing.mdc`](.cursor/rules/playwright-mcp-testing.mdc) — browser verification via Playwright MCP (not an npm Playwright suite in-repo by default).
 
@@ -187,6 +234,7 @@ Environment variables are documented in [`README.md`](README.md) and [`.env.exam
 | Agent framework | `google-adk` (`LlmAgent`, callbacks, session state) |
 | LLM | Google Gemini (model id in `agent.py`) |
 | DB tools | `google-adk` `BigQueryToolset` |
+| Field CRM writes | HouseCall Pro Public API (`httpx`, `hcp/` module) |
 | AG-UI server | `fastapi`, `uvicorn`, `ag-ui-adk` |
 | Custom UI | Next.js, CopilotKit, Auth.js (Google) |
 | Python deps | `uv` / `pyproject.toml`, `uv.lock` |

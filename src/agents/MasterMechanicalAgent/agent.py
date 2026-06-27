@@ -26,57 +26,24 @@ from google.adk.agents.readonly_context import ReadonlyContext
 from google.genai import types
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
+from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.base_tool import BaseTool
-from google.adk.tools.bigquery.bigquery_credentials import BigQueryCredentialsConfig
-from google.adk.tools.bigquery.bigquery_toolset import BigQueryToolset
-from google.adk.tools.bigquery.config import BigQueryToolConfig, WriteMode
 from google.adk.tools.load_artifacts_tool import load_artifacts_tool
 from google.genai.errors import APIError as GenaiAPIError
-import google.auth
 
+from src.agents.MasterMechanicalAgent.bigquery_config import (
+    BIGQUERY_DATASET_ID,
+    BIGQUERY_DATASET_REF,
+    BIGQUERY_PROJECT_ID,
+    bigquery_toolset,
+)
 from src.agents.MasterMechanicalAgent.file_parsing import SummarizeSpreadsheetTool
+from src.agents.MasterMechanicalAgent.hcp.confirmation import validate_apply_allowed
+from src.agents.MasterMechanicalAgent.subagents.hcp_records_agent import hcp_records_agent
 
 logger = logging.getLogger(__name__)
 
-# GCP BigQuery scope — project_id for tools is ONLY the project, not project.dataset.
-BIGQUERY_PROJECT_ID = (
-    os.environ.get("GOOGLE_CLOUD_PROJECT") or "mastermechanical"
-).strip()
-BIGQUERY_DATASET_ID = "dev_Master_Mechanical"
-BIGQUERY_DATASET_REF = f"{BIGQUERY_PROJECT_ID}.{BIGQUERY_DATASET_ID}"
-
-# Write modes define BigQuery access control of agent:
-# ALLOWED: Tools will have full write capabilities.
-# BLOCKED: Default mode. Effectively makes the tool read-only.
-# PROTECTED: Only allows writes on temporary data for a given BigQuery session.
-
-tool_config = BigQueryToolConfig(
-    write_mode=WriteMode.BLOCKED,
-    compute_project_id=BIGQUERY_PROJECT_ID,
-    application_name="mastermechanical-agent",
-)
-
-creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-if creds_file and os.path.exists(creds_file):
-    creds, _ = google.auth.load_credentials_from_file(creds_file)
-    credentials_config = BigQueryCredentialsConfig(credentials=creds)
-else:
-    application_default_credentials, _ = google.auth.default()
-    credentials_config = BigQueryCredentialsConfig(
-        credentials=application_default_credentials
-    )
-
-bigquery_toolset = BigQueryToolset(
-    credentials_config=credentials_config,
-    bigquery_tool_config=tool_config,
-    tool_filter=[
-        "list_dataset_ids",
-        "get_dataset_info",
-        "list_table_ids",
-        "get_table_info",
-        "execute_sql",
-    ],
-)
+# Re-exported from bigquery_config for tests and scripts that import from agent.py.
 
 # Web UI: only this signed-in email gets "owner" tone. Set MASTER_MECHANICAL_OWNER_EMAIL in env
 # (e.g. Cloud Run, .env); leave unset to disable owner-specific framing for everyone.
@@ -228,7 +195,7 @@ WHERE ja.start_time IS NOT NULL
 ORDER BY ja.start_time
 ```
 
-After this query, call `display_in_workspace` with `columns` `["Customer", "Job", "Start (AZ)", "End (AZ)", "Status"]`
+After this query, call `display_in_workspace` with `type: "table"`, `columns` `["Customer", "Job", "Start (AZ)", "End (AZ)", "Status"]`
 and `rows` as string arrays (one array per job). Example chat reply: "17 jobs scheduled this week — see the table in the main panel."
 
 If the user asks to use `start_time` after you used `start_date`, rerun with `start_time` and briefly
@@ -328,6 +295,12 @@ with the uploaded filename before answering about file contents. For CSV/Excel/t
 also call `summarize_spreadsheet` to get columns, row counts, and sample rows. Never claim to
 have read a file without using these tools. Offer to compare uploaded spreadsheets against
 BigQuery customers, jobs, or invoices when relevant.
+
+**HouseCall Pro updates:** You cannot write to HouseCall Pro directly. When the user wants to
+update, change, or fix a customer or job in HouseCall Pro (or the field service system)—contact
+info, service address, job notes, job status, on-my-way / start / complete timestamps—delegate to
+the `hcp_records_agent` tool. Stay read-only in BigQuery for analytics; the subagent handles live
+HCP reads, propose/confirm/apply updates, and mandatory user confirmation before every write.
 
 **Multi-turn consistency:** When the user refers to "those jobs", "that week", or similar, reuse the
 **exact same** date range, region, and filters as the prior answer unless they explicitly change scope.
@@ -460,7 +433,14 @@ def _before_tool_callback(
         active_tool=tool_name,
         detail=f"Calling {tool_name}",
     )
-    del args
+
+    if tool_name == "hcp_apply_update":
+        token = str(args.get("confirmation_token") or "").strip()
+        try:
+            validate_apply_allowed(tool_context, token)
+        except (PermissionError, ValueError) as exc:
+            return {"error": str(exc)}
+
     return None
 
 
@@ -629,10 +609,17 @@ root_agent = LlmAgent(
     description=(
         "HVAC and business assistant for Master Mechanical: technical HVAC help plus read-only "
         "BigQuery insights on customers, jobs, employees, and receivables (balances owed, past due) "
-        f"in {BIGQUERY_DATASET_REF}. Tone follows session (owner vs other users)."
+        f"in {BIGQUERY_DATASET_REF}. Delegates HouseCall Pro record updates to a specialized "
+        "subagent with allowlisted fields and mandatory confirmation. Tone follows session "
+        "(owner vs other users)."
     ),
     instruction=_instruction_with_session_identity,
-    tools=[bigquery_toolset, load_artifacts_tool, SummarizeSpreadsheetTool()],
+    tools=[
+        bigquery_toolset,
+        load_artifacts_tool,
+        SummarizeSpreadsheetTool(),
+        AgentTool(hcp_records_agent, skip_summarization=False),
+    ],
     before_model_callback=_before_model_callback,
     after_model_callback=_after_model_callback,
     before_tool_callback=_before_tool_callback,
